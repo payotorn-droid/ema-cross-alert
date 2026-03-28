@@ -501,14 +501,22 @@ def send_email(subject, body_html):
         return False
 
 
-def build_email_body(new_events_list, now_str, folder_id=""):
+def build_email_body(new_events_list, now_str, folder_id="", asset_states=None):
     # Group by asset
     by_asset = {}
     for ev in new_events_list:
         by_asset.setdefault(ev["asset"], []).append(ev)
 
     drive_link = f"https://drive.google.com/drive/folders/{folder_id}" if folder_id else ""
-    link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br><br>' if drive_link else ""
+    link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>' if drive_link else ""
+
+    # State badges
+    state_html = ""
+    if asset_states:
+        badges = []
+        for a, s in asset_states.items():
+            badges.append(f'<span style="font-size:13px;font-weight:700;">{a}: {s}</span>')
+        state_html = '<div style="margin:8px 0;">' + ' &nbsp;|&nbsp; '.join(badges) + '</div>'
 
     sections = ""
     for asset, events in by_asset.items():
@@ -547,6 +555,7 @@ def build_email_body(new_events_list, now_str, folder_id=""):
     <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:2px;">⚡ EMA Cross Alert</div>
     <div style="font-size:11px;color:#888;margin-bottom:8px;">{now_str}</div>
     {link_html}
+    {state_html}
     {sections}
     <div style="font-size:10px;color:#aaa;margin-top:8px;">Auto-generated · GitHub Actions</div>
   </div>
@@ -604,6 +613,108 @@ def upload_to_drive(filepath, folder_id):
 LABEL_FULL = {"S": "Short 12/26", "M": "Mid 20/50", "L": "Long 50/200"}
 
 
+def analyze_market_state(all_events, rsi_data=None):
+    """Analyze all EMA crosses to classify market state for email subject."""
+    # Build latest signal per (interval, label) from ALL events
+    cs = {}
+    all_sorted = sorted(all_events.keys())
+    for (d, t) in all_sorted:
+        ev = all_events[(d, t)]
+        for iv in INTERVALS:
+            for _, _, lbl in EMA_PAIRS:
+                cross = ev["crosses"].get(iv, {}).get(lbl)
+                if cross:
+                    cs[(iv, lbl)] = cross
+
+    # Helper: get latest signal
+    def sig(iv, lbl):
+        return cs.get((iv, lbl))
+
+    # Count golden/death per timeframe group
+    big   = [sig("1d","S"), sig("1d","M"), sig("1d","L"), sig("4h","S"), sig("4h","M"), sig("4h","L")]
+    mid   = [sig("1h","S"), sig("1h","M"), sig("1h","L")]
+    small = [sig("15m","S"), sig("15m","M"), sig("15m","L"), sig("30m","S"), sig("30m","M"), sig("30m","L")]
+
+    big_g   = sum(1 for s in big if s == "GOLDEN")
+    big_d   = sum(1 for s in big if s == "DEATH")
+    mid_g   = sum(1 for s in mid if s == "GOLDEN")
+    mid_d   = sum(1 for s in mid if s == "DEATH")
+    small_g = sum(1 for s in small if s == "GOLDEN")
+    small_d = sum(1 for s in small if s == "DEATH")
+
+    # RSI context
+    rsi_ctx = ""
+    if rsi_data:
+        latest_key = all_sorted[-1] if all_sorted else None
+        if latest_key:
+            rsi_row = lookup_rsi(rsi_data, latest_key[0], latest_key[1])
+            for iv in ["4h", "1d"]:
+                v = rsi_row.get(iv)
+                if v and v >= 70:
+                    rsi_ctx = f" RSI {iv}={int(v)}"
+                    break
+                elif v and v <= 30:
+                    rsi_ctx = f" RSI {iv}={int(v)}"
+                    break
+
+    # 1d Death Cross (50/200) — major event
+    if sig("1d", "L") == "DEATH":
+        latest_1d_l = None
+        for (d, t) in reversed(all_sorted):
+            if all_events[(d, t)]["crosses"].get("1d", {}).get("L") == "DEATH":
+                latest_1d_l = (d, t)
+                break
+        if latest_1d_l and latest_1d_l == all_sorted[-1]:
+            return f"🔴 1d Death Cross 50/200{rsi_ctx}"
+
+    # 1d Golden Cross (50/200)
+    if sig("1d", "L") == "GOLDEN":
+        latest_1d_l = None
+        for (d, t) in reversed(all_sorted):
+            if all_events[(d, t)]["crosses"].get("1d", {}).get("L") == "GOLDEN":
+                latest_1d_l = (d, t)
+                break
+        if latest_1d_l and latest_1d_l == all_sorted[-1]:
+            return f"🟢 1d Golden Cross 50/200{rsi_ctx}"
+
+    # Full Bull — 1d+4h+1h all golden
+    if big_g >= 5 and mid_g >= 2:
+        return f"🟢 Full Bull{rsi_ctx}"
+
+    # Full Bear
+    if big_d >= 5 and mid_d >= 2:
+        return f"🔴 Full Bear{rsi_ctx}"
+
+    # Bull Wave — big green, small following
+    if big_g >= 4 and small_g >= 3:
+        return f"🟢 Bull Wave{rsi_ctx}"
+
+    # Bear Wave
+    if big_d >= 4 and small_d >= 3:
+        return f"🔴 Bear Wave{rsi_ctx}"
+
+    # Divergence — small vs big disagree
+    if small_g >= 4 and big_d >= 4:
+        return f"⚠️ Divergence: Short↑ Long↓{rsi_ctx}"
+    if small_d >= 4 and big_g >= 4:
+        return f"⚠️ Divergence: Short↓ Long↑{rsi_ctx}"
+
+    # Momentum fading — mid/small turning against big
+    if big_g >= 3 and mid_d >= 2 and small_d >= 3:
+        return f"⚠️ Momentum Fading{rsi_ctx}"
+    if big_d >= 3 and mid_g >= 2 and small_g >= 3:
+        return f"⚠️ Recovering{rsi_ctx}"
+
+    # Mixed
+    total_g = big_g + mid_g + small_g
+    total_d = big_d + mid_d + small_d
+    if total_g > total_d:
+        return f"🟡 Lean Bull{rsi_ctx}"
+    elif total_d > total_g:
+        return f"🟡 Lean Bear{rsi_ctx}"
+    return f"🟡 Mixed{rsi_ctx}"
+
+
 # ── Main ─────────────────────────────────────────────────────
 os.makedirs(DATA_DIR, exist_ok=True)
 state = load_state()
@@ -615,11 +726,14 @@ print(f"[{now_str}] report.py starting...")
 # 1. Collect events from CSV
 sections    = []
 all_new_evs = []
+asset_states = {}
 
 for asset_name in ASSETS:
     all_events = collect_events(asset_name)
     rsi_data   = collect_rsi(asset_name)
     sections.append(build_table_html(asset_name, all_events, rsi_data))
+    asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
+    print(f"  {asset_name}: {asset_states[asset_name]}")
 
     # Check for new events not yet sent (only recent ones)
     email_cutoff = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
@@ -664,8 +778,9 @@ if all_new_evs:
             print(f"  Email cooldown: {MIN_EMAIL_GAP - int(elapsed)} min remaining")
 
     if can_send:
-        subject   = f"⚡ EMA Cross Alert — {len(all_new_evs)} new event(s)"
-        body_html = build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID)
+        state_parts = [f"{a}: {s}" for a, s in asset_states.items()]
+        subject = f"⚡ {' | '.join(state_parts)} — {len(all_new_evs)} new"
+        body_html = build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID, asset_states)
         if send_email(subject, body_html):
             state["last_email"] = now.isoformat()
             print(f"  Email sent: {len(all_new_evs)} new event(s)")
