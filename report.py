@@ -543,7 +543,7 @@ if all_new_evs:
         if ev["event_key"] not in state["sent_events"]:
             state["sent_events"].append(ev["event_key"])
 
-    state["sent_events"] = state["sent_events"][-500:]
+    state["sent_events"] = state["sent_events"][-2000:]
 else:
     print("  No new events.")
 
