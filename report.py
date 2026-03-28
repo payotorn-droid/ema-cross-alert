@@ -320,7 +320,7 @@ def build_html(sections):
 <div class="top-bar">
   <div>
     <p class="page-title">EMA Cross Report</p>
-    <p class="page-sub">max {MAX_ROWS} rows · Bangkok (ICT) · Updated: {now}</p>
+    <p class="page-sub">max {MAX_ROWS} rows · Bangkok (ICT) · Updated: {now} · <span id="cd" style="color:var(--blue);font-weight:700;">--:--</span></p>
   </div>
   <button class="toggle-btn" onclick="toggleTheme()">
     <span id="ti">🌙</span><span id="tl">Dark</span>
@@ -349,6 +349,16 @@ def build_html(sections):
         }});
       }});
     }});
+    function tick(){{
+      const now=new Date();
+      const m=now.getMinutes(),s=now.getSeconds();
+      const left=((14-(m%15))*60)+(60-s);
+      const mm=String(Math.floor(left/60)).padStart(2,'0');
+      const ss=String(left%60).padStart(2,'0');
+      document.getElementById('cd').textContent='Next: '+mm+':'+ss;
+      if(left<=0)location.reload();
+    }}
+    tick();setInterval(tick,1000);
   }});
 </script>
 </body></html>"""
