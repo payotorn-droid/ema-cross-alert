@@ -2,14 +2,14 @@ name: EMA Cross Alert
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Every 15 minutes
-  workflow_dispatch:          # Manual trigger button
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
   ema:
     runs-on: ubuntu-latest
     permissions:
-      contents: write         # To commit state files back
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -22,10 +22,13 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Download market data
+        env:
+          TZ: Asia/Bangkok
         run: python download.py
 
       - name: Generate report + upload + email
         env:
+          TZ: Asia/Bangkok
           GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_KEY }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
@@ -35,6 +38,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/report_state.json data/download_state.json
+          git add data/report_state.json
           git diff --cached --quiet || git commit -m "Update state [skip ci]"
           git push
