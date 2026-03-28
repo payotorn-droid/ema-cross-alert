@@ -377,49 +377,56 @@ def send_email(subject, body_html):
         return False
 
 
-def build_email_body(new_events_list, now_str):
-    rows = ""
+def build_email_body(new_events_list, now_str, folder_id=""):
+    # Group by asset
+    by_asset = {}
     for ev in new_events_list:
-        icon   = "🟢" if ev["cross"] == "GOLDEN" else "🔴"
-        color  = "#166534" if ev["cross"] == "GOLDEN" else "#991b1b"
-        bg     = "#dcfce7" if ev["cross"] == "GOLDEN" else "#fee2e2"
-        rows  += f"""
-        <tr>
-          <td style="padding:6px 10px;font-weight:700;">{ev['asset']}</td>
-          <td style="padding:6px 10px;">{ev['date']} {ev['time']}</td>
-          <td style="padding:6px 10px;">{ev['interval']}</td>
-          <td style="padding:6px 10px;">{ev['label_full']}</td>
-          <td style="padding:6px 10px;text-align:center;">
-            <span style="background:{bg};color:{color};border-radius:4px;padding:2px 8px;font-weight:700;">
-              {icon} {ev['cross']}
-            </span>
-          </td>
-          <td style="padding:6px 10px;font-family:monospace;">{fmt_price(ev['price'])}</td>
-        </tr>"""
+        by_asset.setdefault(ev["asset"], []).append(ev)
 
-    return f"""
-    <html><body style="font-family:Arial,sans-serif;padding:20px;background:#f5f5f0;">
-      <div style="max-width:600px;margin:auto;background:#fff;border-radius:10px;
-                  border-left:6px solid #f5d06e;padding:20px;">
-        <h2 style="color:#92400e;margin:0 0 4px;">⚡ EMA Cross Alert</h2>
-        <p style="color:#888;font-size:13px;margin:0 0 16px;">{now_str} (Bangkok)</p>
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
-          <thead>
-            <tr style="background:#f5f5f0;color:#888;font-size:11px;">
-              <th style="padding:6px 10px;text-align:left;">Asset</th>
-              <th style="padding:6px 10px;text-align:left;">Date/Time</th>
-              <th style="padding:6px 10px;text-align:left;">Interval</th>
-              <th style="padding:6px 10px;text-align:left;">EMA</th>
-              <th style="padding:6px 10px;text-align:left;">Signal</th>
-              <th style="padding:6px 10px;text-align:left;">Price</th>
+    drive_link = f"https://drive.google.com/drive/folders/{folder_id}" if folder_id else ""
+    link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br><br>' if drive_link else ""
+
+    sections = ""
+    for asset, events in by_asset.items():
+        rows = ""
+        prev_date = ""
+        for ev in sorted(events, key=lambda e: (e["date"], e["time"])):
+            if ev["date"] != prev_date:
+                rows += f'<tr><td colspan="4" style="padding:4px 4px 1px;font-size:10px;color:#888;border-top:1px solid #eee;">{ev["date"]}</td></tr>'
+                prev_date = ev["date"]
+            icon  = "🟢" if ev["cross"] == "GOLDEN" else "🔴"
+            color = "#166534" if ev["cross"] == "GOLDEN" else "#991b1b"
+            bg    = "#dcfce7" if ev["cross"] == "GOLDEN" else "#fee2e2"
+            rows += f"""<tr>
+              <td style="padding:3px 4px;font-size:12px;">{ev['time']}</td>
+              <td style="padding:3px 4px;font-size:12px;">{ev['interval']}·{ev['label']}</td>
+              <td style="padding:3px 4px;"><span style="background:{bg};color:{color};border-radius:3px;padding:1px 5px;font-weight:700;font-size:11px;">{icon}{ev['cross'][0]}</span></td>
+              <td style="padding:3px 4px;font-size:12px;text-align:right;">{fmt_price(ev['price'])}</td>
+            </tr>"""
+
+        sections += f"""
+        <div style="margin-bottom:12px;">
+          <div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px;">{asset} ({len(events)})</div>
+          <table style="width:100%;border-collapse:collapse;">
+            <tr style="color:#888;font-size:10px;">
+              <th style="text-align:left;padding:2px 4px;">Time</th>
+              <th style="text-align:left;padding:2px 4px;">Iv·EMA</th>
+              <th style="text-align:left;padding:2px 4px;">Sig</th>
+              <th style="text-align:right;padding:2px 4px;">Price</th>
             </tr>
-          </thead>
-          <tbody>{rows}</tbody>
-        </table>
-        <hr style="border:none;border-top:1px solid #eee;margin:16px 0;">
-        <p style="font-size:11px;color:#aaa;margin:0;">EMA Cross Report · Auto-generated</p>
-      </div>
-    </body></html>"""
+            {rows}
+          </table>
+        </div>"""
+
+    return f"""<html><body style="font-family:Arial,sans-serif;margin:0;padding:8px;background:#f5f5f0;">
+  <div style="max-width:360px;margin:auto;background:#fff;border-radius:8px;border-left:4px solid #f5d06e;padding:12px;">
+    <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:2px;">⚡ EMA Cross Alert</div>
+    <div style="font-size:11px;color:#888;margin-bottom:8px;">{now_str}</div>
+    {link_html}
+    {sections}
+    <div style="font-size:10px;color:#aaa;margin-top:8px;">Auto-generated · GitHub Actions</div>
+  </div>
+</body></html>"""
 
 
 def upload_to_drive(filepath, folder_id):
@@ -533,7 +540,7 @@ if all_new_evs:
 
     if can_send:
         subject   = f"⚡ EMA Cross Alert — {len(all_new_evs)} new event(s)"
-        body_html = build_email_body(all_new_evs, now_str)
+        body_html = build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID)
         if send_email(subject, body_html):
             state["last_email"] = now.isoformat()
             print(f"  Email sent: {len(all_new_evs)} new event(s)")
