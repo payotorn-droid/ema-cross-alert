@@ -435,7 +435,7 @@ def upload_to_drive(filepath, folder_id):
 
         creds = service_account.Credentials.from_service_account_info(
             json.loads(sa_key),
-            scopes=["https://www.googleapis.com/auth/drive.file"]
+            scopes=["https://www.googleapis.com/auth/drive"]
         )
         service = build("drive", "v3", credentials=creds)
         filename = os.path.basename(filepath)
