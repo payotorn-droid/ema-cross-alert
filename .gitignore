@@ -1,0 +1,9 @@
+# CSV data files (re-downloaded each run)
+data/*.csv
+
+# Generated HTML (uploaded to Drive)
+data/*.html
+
+# Python
+__pycache__/
+*.pyc
