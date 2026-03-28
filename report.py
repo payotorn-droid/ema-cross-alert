@@ -75,6 +75,41 @@ def load_csv(asset_name, interval):
     return df["Close"].dropna()
 
 
+def calc_rsi(close, period=14):
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def collect_rsi(asset_name):
+    """Build RSI Series per interval for nearest-timestamp lookup."""
+    rsi_series = {}
+    for interval in INTERVALS:
+        close = load_csv(asset_name, interval)
+        if close is None or len(close) < 20:
+            continue
+        rsi_series[interval] = calc_rsi(close)
+    return rsi_series
+
+
+def lookup_rsi(rsi_series, date_str, time_str):
+    """Look up RSI for each interval at nearest timestamp <= event time."""
+    result = {}
+    try:
+        ts = pd.Timestamp(f"{date_str} {time_str}")
+    except Exception:
+        return result
+    for iv, rsi in rsi_series.items():
+        val = rsi.asof(ts)
+        if pd.notna(val):
+            result[iv] = round(float(val), 1)
+    return result
+
+
 def collect_events(asset_name):
     all_events = {}
 
@@ -136,9 +171,23 @@ def fmt_price(price):
     return f"${price:,.0f}" if price >= 1000 else f"${price:,.2f}"
 
 
-def build_table_html(asset_name, all_events):
+def rsi_cell(val, iv_sep=False, iv=""):
+    cls = "iv-sep " if iv_sep else ""
+    attr = f' data-iv="{iv}" data-lbl="R"'
+    if val is None:
+        return f'<td class="{cls}rsi"{attr}><span class="n">—</span></td>'
+    if val >= 70:
+        return f'<td class="{cls}rsi rsi-hi"{attr}>{val:.0f}</td>'
+    elif val <= 30:
+        return f'<td class="{cls}rsi rsi-lo"{attr}>{val:.0f}</td>'
+    else:
+        return f'<td class="{cls}rsi"{attr}>{val:.0f}</td>'
+
+
+def build_table_html(asset_name, all_events, rsi_data=None):
     n_ema       = len(EMA_PAIRS)
-    total_cols  = 2 + len(INTERVALS) * n_ema
+    n_sub       = n_ema + 1   # S, M, L, R per interval
+    total_cols  = 2 + len(INTERVALS) * n_sub
     all_sorted  = sorted(all_events.keys())
     display_keys = all_sorted[-MAX_ROWS:]
 
@@ -180,12 +229,12 @@ def build_table_html(asset_name, all_events):
               <div class="summary-chips">{chips_str}</div>
             </div>"""
 
-    # Header row 1 & 2 for interval-grouped mode (default)
+    # Header: By Interval (default) — 15m(S,M,L,R) | 30m(S,M,L,R) | ...
     h1  = '<tr class="hdr-iv hdr-r1">'
     h1 += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
     h1 += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
     for iv in INTERVALS:
-        h1 += f'<th colspan="{n_ema}" class="iv-sep">{iv}</th>'
+        h1 += f'<th colspan="{n_sub}" class="iv-sep">{iv}</th>'
     h1 += '</tr>'
 
     h2 = '<tr class="hdr-iv hdr-r2">'
@@ -193,15 +242,17 @@ def build_table_html(asset_name, all_events):
         for j, (_, _, lbl) in enumerate(EMA_PAIRS):
             cls = ' class="iv-sep"' if j == 0 and idx > 0 else ''
             h2 += f'<th{cls} data-iv="{iv}" data-lbl="{lbl}">{lbl}</th>'
+        h2 += f'<th class="rsi-hdr" data-iv="{iv}" data-lbl="R">R</th>'
     h2 += '</tr>'
 
-    # Header row 1 & 2 for EMA-grouped mode (hidden)
+    # Header: By EMA (hidden) — Short(15m..1d) | Mid(15m..1d) | Long(15m..1d) | RSI(15m..1d)
     h1b  = '<tr class="hdr-ema hdr-r1" style="display:none;">'
     h1b += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
     h1b += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
     for _, _, lbl in EMA_PAIRS:
         full = {"S":"Short","M":"Mid","L":"Long"}[lbl]
         h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep">{full}</th>'
+    h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep rsi-hdr">RSI</th>'
     h1b += '</tr>'
 
     h2b = '<tr class="hdr-ema hdr-r2" style="display:none;">'
@@ -209,6 +260,9 @@ def build_table_html(asset_name, all_events):
         for idx, iv in enumerate(INTERVALS):
             cls = ' class="iv-sep"' if idx == 0 and j > 0 else ''
             h2b += f'<th{cls} data-iv="{iv}" data-lbl="{lbl}">{iv}</th>'
+    for idx, iv in enumerate(INTERVALS):
+        cls = ' class="iv-sep"' if idx == 0 else ''
+        h2b += f'<th{cls} data-iv="{iv}" data-lbl="R">{iv}</th>'
     h2b += '</tr>'
 
     rows_html = ""
@@ -220,6 +274,7 @@ def build_table_html(asset_name, all_events):
 
         ev   = all_events[(date_str, time_str)]
         cur_price = ev["price"]
+        rsi_row = lookup_rsi(rsi_data, date_str, time_str) if rsi_data else {}
         row  = '<tr class="data">'
         row += f'<td class="sticky s0 left tm">{time_str}</td>'
         row += f'<td class="sticky s1 left price">{fmt_price(cur_price)}</td>'
@@ -233,6 +288,7 @@ def build_table_html(asset_name, all_events):
                     col_state[col_key] = cross
                     col_price[col_key] = cur_price
                 row += cell_html(cross, first_in_group, col_state.get(col_key), col_price.get(col_key), cur_price, iv, lbl)
+            row += rsi_cell(rsi_row.get(iv), iv_sep=False, iv=iv)
         row += '</tr>'
         rows_html += row
 
@@ -332,6 +388,10 @@ def build_html(sections):
   .bg-d .n{{color:var(--d-fg);opacity:.4;}}
   .dot-g{{color:#22c55e;font-size:14px;font-weight:700;}}
   .dot-d{{color:#ef4444;font-size:14px;font-weight:700;}}
+  .rsi{{font-size:11px;color:var(--text3);font-weight:700;}}
+  .rsi-hi{{background:var(--d-bg);color:var(--d-fg);}}
+  .rsi-lo{{background:var(--g-bg);color:var(--g-fg);}}
+  .rsi-hdr{{color:var(--gold)!important;}}
   .empty{{text-align:center;color:var(--text4);padding:14px;font-weight:400;}}
   .footer{{font-size:10px;color:var(--text4);text-align:center;margin-top:6px;}}
 </style>
@@ -354,14 +414,14 @@ def build_html(sections):
 <div class="legend">
   <div class="leg"><span class="lg">G</span> Golden (Buy)</div>
   <div class="leg"><span class="ld">D</span> Death (Sell)</div>
-  <div class="leg" style="color:var(--text4);font-weight:400">S=12/26 M=20/50 L=50/200</div>
+  <div class="leg" style="color:var(--text4);font-weight:400">S=12/26 M=20/50 L=50/200 R=RSI-14</div>
 </div>
 {body}
 <p class="footer">Auto-generated every 15 min · GitHub Actions</p>
 <script>
   let groupMode='iv';
   const ivs=['15m','30m','1h','4h','1d'];
-  const lbls=['S','M','L'];
+  const lbls=['S','M','L','R'];
   function toggleTheme(){{
     const h=document.documentElement,dark=h.getAttribute('data-theme')==='dark';
     h.setAttribute('data-theme',dark?'light':'dark');
@@ -373,14 +433,12 @@ def build_html(sections):
     document.getElementById('gl').textContent=groupMode==='iv'?'By Interval':'By EMA';
     document.querySelectorAll('.hdr-iv').forEach(r=>r.style.display=groupMode==='iv'?'':'none');
     document.querySelectorAll('.hdr-ema').forEach(r=>r.style.display=groupMode==='ema'?'':'none');
-    // Build sort order
     let order=[];
     if(groupMode==='ema'){{
       lbls.forEach(l=>ivs.forEach(v=>order.push(v+'-'+l)));
     }}else{{
       ivs.forEach(v=>lbls.forEach(l=>order.push(v+'-'+l)));
     }}
-    // Reorder data cells
     document.querySelectorAll('tr.data').forEach(row=>{{
       const cells=Array.from(row.querySelectorAll('td[data-iv]'));
       const map={{}};
@@ -390,7 +448,7 @@ def build_html(sections):
         if(c){{
           c.classList.remove('iv-sep');
           if(groupMode==='ema'&&i%5===0&&i>0)c.classList.add('iv-sep');
-          if(groupMode==='iv'&&i%3===0&&i>0)c.classList.add('iv-sep');
+          if(groupMode==='iv'&&i%4===0&&i>0)c.classList.add('iv-sep');
           row.appendChild(c);
         }}
       }});
@@ -560,7 +618,8 @@ all_new_evs = []
 
 for asset_name in ASSETS:
     all_events = collect_events(asset_name)
-    sections.append(build_table_html(asset_name, all_events))
+    rsi_data   = collect_rsi(asset_name)
+    sections.append(build_table_html(asset_name, all_events, rsi_data))
 
     # Check for new events not yet sent (only recent ones)
     email_cutoff = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
