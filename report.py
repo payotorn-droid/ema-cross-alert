@@ -104,14 +104,17 @@ def collect_events(asset_name):
     return all_events
 
 
-def cell_html(cross, iv_sep=False, last_signal=None, last_price=None, cur_price=None):
+def cell_html(cross, iv_sep=False, last_signal=None, last_price=None, cur_price=None, iv="", lbl=""):
     classes = []
     if iv_sep:
         classes.append("iv-sep")
+    attr = f' data-iv="{iv}" data-lbl="{lbl}"'
     if cross == "GOLDEN":
-        return f'<td class="{" ".join(classes)}"><span class="g">G</span></td>' if classes else f'<td><span class="g">G</span></td>'
+        cls_str = f' class="{" ".join(classes)}"' if classes else ''
+        return f'<td{cls_str}{attr}><span class="g">G</span></td>'
     elif cross == "DEATH":
-        return f'<td class="{" ".join(classes)}"><span class="d">D</span></td>' if classes else f'<td><span class="d">D</span></td>'
+        cls_str = f' class="{" ".join(classes)}"' if classes else ''
+        return f'<td{cls_str}{attr}><span class="d">D</span></td>'
     else:
         if last_signal and last_price and cur_price:
             if last_signal == "GOLDEN":
@@ -120,13 +123,13 @@ def cell_html(cross, iv_sep=False, last_signal=None, last_price=None, cur_price=
                 classes.append("bg-d")
             cls_str = f' class="{" ".join(classes)}"' if classes else ''
             if cur_price > last_price:
-                return f'<td{cls_str}><span class="dot-g">●</span></td>'
+                return f'<td{cls_str}{attr}><span class="dot-g">●</span></td>'
             elif cur_price < last_price:
-                return f'<td{cls_str}><span class="dot-d">●</span></td>'
+                return f'<td{cls_str}{attr}><span class="dot-d">●</span></td>'
             else:
-                return f'<td{cls_str}><span class="n">—</span></td>'
+                return f'<td{cls_str}{attr}><span class="n">—</span></td>'
         cls_str = f' class="{" ".join(classes)}"' if classes else ''
-        return f'<td{cls_str}><span class="n">—</span></td>'
+        return f'<td{cls_str}{attr}><span class="n">—</span></td>'
 
 
 def fmt_price(price):
@@ -177,19 +180,36 @@ def build_table_html(asset_name, all_events):
               <div class="summary-chips">{chips_str}</div>
             </div>"""
 
-    h1  = '<tr>'
+    # Header row 1 & 2 for interval-grouped mode (default)
+    h1  = '<tr class="hdr-iv hdr-r1">'
     h1 += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
     h1 += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
     for iv in INTERVALS:
         h1 += f'<th colspan="{n_ema}" class="iv-sep">{iv}</th>'
     h1 += '</tr>'
 
-    h2 = '<tr>'
-    for idx in range(len(INTERVALS)):
+    h2 = '<tr class="hdr-iv hdr-r2">'
+    for idx, iv in enumerate(INTERVALS):
         for j, (_, _, lbl) in enumerate(EMA_PAIRS):
             cls = ' class="iv-sep"' if j == 0 and idx > 0 else ''
-            h2 += f'<th{cls}>{lbl}</th>'
+            h2 += f'<th{cls} data-iv="{iv}" data-lbl="{lbl}">{lbl}</th>'
     h2 += '</tr>'
+
+    # Header row 1 & 2 for EMA-grouped mode (hidden)
+    h1b  = '<tr class="hdr-ema hdr-r1" style="display:none;">'
+    h1b += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
+    h1b += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
+    for _, _, lbl in EMA_PAIRS:
+        full = {"S":"Short","M":"Mid","L":"Long"}[lbl]
+        h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep">{full}</th>'
+    h1b += '</tr>'
+
+    h2b = '<tr class="hdr-ema hdr-r2" style="display:none;">'
+    for j, (_, _, lbl) in enumerate(EMA_PAIRS):
+        for idx, iv in enumerate(INTERVALS):
+            cls = ' class="iv-sep"' if idx == 0 and j > 0 else ''
+            h2b += f'<th{cls} data-iv="{iv}" data-lbl="{lbl}">{iv}</th>'
+    h2b += '</tr>'
 
     rows_html = ""
     prev_date = None
@@ -212,7 +232,7 @@ def build_table_html(asset_name, all_events):
                 if cross:
                     col_state[col_key] = cross
                     col_price[col_key] = cur_price
-                row += cell_html(cross, first_in_group, col_state.get(col_key), col_price.get(col_key), cur_price)
+                row += cell_html(cross, first_in_group, col_state.get(col_key), col_price.get(col_key), cur_price, iv, lbl)
         row += '</tr>'
         rows_html += row
 
@@ -225,7 +245,7 @@ def build_table_html(asset_name, all_events):
       {summary_html}
       <div class="table-scroll">
         <table>
-          <thead>{h1}{h2}</thead>
+          <thead>{h1}{h2}{h1b}{h2b}</thead>
           <tbody>{rows_html}</tbody>
         </table>
       </div>
@@ -288,13 +308,13 @@ def build_html(sections):
   th,td{{padding:4px 6px;text-align:center;white-space:nowrap;border-bottom:.5px solid var(--border);font-weight:700;}}
   th{{background:var(--bg3);color:var(--text3);font-size:11px;}}
   .left{{text-align:left!important;}}
-  thead tr:first-child th{{color:var(--blue);font-size:12px;padding-top:7px;padding-bottom:2px;border-bottom:none;position:sticky;top:0;z-index:3;background:var(--bg3);}}
-  thead tr:last-child th{{color:var(--text3);font-size:11px;padding-top:1px;padding-bottom:5px;border-bottom:1px solid var(--border2);position:sticky;top:26px;z-index:3;background:var(--bg3);}}
+  thead th{{position:sticky;z-index:3;background:var(--bg3);}}
+  thead .hdr-r1 th{{top:0;color:var(--blue);font-size:12px;padding-top:7px;padding-bottom:2px;border-bottom:none;}}
+  thead .hdr-r2 th{{top:26px;color:var(--text3);font-size:11px;padding-top:1px;padding-bottom:5px;border-bottom:2px solid var(--border2);box-shadow:0 2px 4px rgba(0,0,0,.15);}}
   th.iv-sep{{border-left:2px solid var(--border2);}}
   td.iv-sep{{border-left:2px solid var(--border2);}}
   .sticky{{position:sticky;z-index:2;background:var(--bg2);}}
-  thead tr:first-child .sticky{{z-index:5;background:var(--bg3);}}
-  thead tr:last-child .sticky{{z-index:5;background:var(--bg3);}}
+  thead .sticky{{z-index:5;background:var(--bg3);}}
   .s0{{left:0;}} .s1{{left:52px;box-shadow:var(--shadow);}}
   thead .s1{{box-shadow:var(--shadow);}}
   tr.data:hover .sticky{{background:var(--bg4);}}
@@ -322,9 +342,14 @@ def build_html(sections):
     <p class="page-title">EMA Cross Report</p>
     <p class="page-sub">max {MAX_ROWS} rows · Bangkok (ICT) · Updated: {now} · <span id="cd" style="color:var(--blue);font-weight:700;">--:--</span></p>
   </div>
-  <button class="toggle-btn" onclick="toggleTheme()">
-    <span id="ti">🌙</span><span id="tl">Dark</span>
-  </button>
+  <div style="display:flex;gap:6px;">
+    <button class="toggle-btn" onclick="toggleGroup()">
+      <span id="gl">By Interval</span>
+    </button>
+    <button class="toggle-btn" onclick="toggleTheme()">
+      <span id="ti">🌙</span><span id="tl">Dark</span>
+    </button>
+  </div>
 </div>
 <div class="legend">
   <div class="leg"><span class="lg">G</span> Golden (Buy)</div>
@@ -334,11 +359,42 @@ def build_html(sections):
 {body}
 <p class="footer">Auto-generated every 15 min · GitHub Actions</p>
 <script>
+  let groupMode='iv';
+  const ivs=['15m','30m','1h','4h','1d'];
+  const lbls=['S','M','L'];
   function toggleTheme(){{
     const h=document.documentElement,dark=h.getAttribute('data-theme')==='dark';
     h.setAttribute('data-theme',dark?'light':'dark');
     document.getElementById('ti').textContent=dark?'🌙':'☀️';
     document.getElementById('tl').textContent=dark?'Dark':'Light';
+  }}
+  function toggleGroup(){{
+    groupMode=groupMode==='iv'?'ema':'iv';
+    document.getElementById('gl').textContent=groupMode==='iv'?'By Interval':'By EMA';
+    document.querySelectorAll('.hdr-iv').forEach(r=>r.style.display=groupMode==='iv'?'':'none');
+    document.querySelectorAll('.hdr-ema').forEach(r=>r.style.display=groupMode==='ema'?'':'none');
+    // Build sort order
+    let order=[];
+    if(groupMode==='ema'){{
+      lbls.forEach(l=>ivs.forEach(v=>order.push(v+'-'+l)));
+    }}else{{
+      ivs.forEach(v=>lbls.forEach(l=>order.push(v+'-'+l)));
+    }}
+    // Reorder data cells
+    document.querySelectorAll('tr.data').forEach(row=>{{
+      const cells=Array.from(row.querySelectorAll('td[data-iv]'));
+      const map={{}};
+      cells.forEach(c=>map[c.dataset.iv+'-'+c.dataset.lbl]=c);
+      order.forEach((k,i)=>{{
+        const c=map[k];
+        if(c){{
+          c.classList.remove('iv-sep');
+          if(groupMode==='ema'&&i%5===0&&i>0)c.classList.add('iv-sep');
+          if(groupMode==='iv'&&i%3===0&&i>0)c.classList.add('iv-sep');
+          row.appendChild(c);
+        }}
+      }});
+    }});
   }}
   window.addEventListener('DOMContentLoaded',()=>{{
     document.querySelectorAll('table').forEach(tbl=>{{
