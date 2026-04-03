@@ -726,7 +726,8 @@
     "Bitcoin|2026-04-04|00:00|30m|M|DEATH",
     "Bitcoin|2026-04-04|00:30|30m|M|GOLDEN",
     "Bitcoin|2026-04-04|02:00|15m|S|DEATH",
-    "Bitcoin|2026-04-04|04:15|15m|S|GOLDEN"
+    "Bitcoin|2026-04-04|04:15|15m|S|GOLDEN",
+    "Bitcoin|2026-04-04|05:30|30m|M|GOLDEN"
   ],
-  "last_email": "2026-04-04T04:18:33.791938"
+  "last_email": "2026-04-04T05:45:23.659034"
 }
