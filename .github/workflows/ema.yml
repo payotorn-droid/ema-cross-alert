@@ -50,7 +50,7 @@ jobs:
           cp data/ema_cross_report.html _site/index.html
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
