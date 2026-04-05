@@ -3,7 +3,6 @@ import os
 import json
 import smtplib
 from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings("ignore")
@@ -229,7 +228,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
               <div class="summary-chips">{chips_str}</div>
             </div>"""
 
-    # Header: By Interval (default) — 15m(S,M,L,R) | 30m(S,M,L,R) | ...
+    # Header: By Interval (default)
     h1  = '<tr class="hdr-iv hdr-r1">'
     h1 += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
     h1 += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
@@ -245,7 +244,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
         h2 += f'<th class="rsi-hdr" data-iv="{iv}" data-lbl="R">R</th>'
     h2 += '</tr>'
 
-    # Header: By EMA (hidden) — Short(15m..1d) | Mid(15m..1d) | Long(15m..1d) | RSI(15m..1d)
+    # Header: By EMA (hidden)
     h1b  = '<tr class="hdr-ema hdr-r1" style="display:none;">'
     h1b += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
     h1b += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
@@ -480,8 +479,8 @@ def build_html(sections):
 
 def event_key(asset, date_str, time_str, interval, label, cross):
     return f"{asset}|{date_str}|{time_str}|{interval}|{label}|{cross}"
-    
-    
+
+
 def send_email(subject, body_html):
     if not GMAIL_PASSWORD:
         print("  Email SKIP: GMAIL_APP_PASSWORD not set")
@@ -508,7 +507,7 @@ def build_email_body(new_events_list, now_str, folder_id="", asset_states=None):
 
     pages_link = "https://payotorn-droid.github.io/ema-cross-alert/"
     link_html = f'<a href="{pages_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>'
-    
+
     # State badges
     state_html = ""
     if asset_states:
@@ -588,14 +587,12 @@ def upload_to_drive(filepath, folder_id):
 
         media = MediaFileUpload(filepath, mimetype="text/html")
         if existing:
-            # Update existing file
             service.files().update(
                 fileId=existing[0]["id"],
                 media_body=media
             ).execute()
             print(f"  Drive updated: {filename}")
         else:
-            # Create new file
             file_metadata = {"name": filename, "parents": [folder_id]}
             service.files().create(
                 body=file_metadata,
@@ -614,7 +611,6 @@ LABEL_FULL = {"S": "Short 12/26", "M": "Mid 20/50", "L": "Long 50/200"}
 
 def analyze_market_state(all_events, rsi_data=None):
     """Analyze all EMA crosses to classify market state for email subject."""
-    # Build latest signal per (interval, label) from ALL events
     cs = {}
     all_sorted = sorted(all_events.keys())
     for (d, t) in all_sorted:
@@ -625,11 +621,9 @@ def analyze_market_state(all_events, rsi_data=None):
                 if cross:
                     cs[(iv, lbl)] = cross
 
-    # Helper: get latest signal
     def sig(iv, lbl):
         return cs.get((iv, lbl))
 
-    # Count golden/death per timeframe group
     big   = [sig("1d","S"), sig("1d","M"), sig("1d","L"), sig("4h","S"), sig("4h","M"), sig("4h","L")]
     mid   = [sig("1h","S"), sig("1h","M"), sig("1h","L")]
     small = [sig("15m","S"), sig("15m","M"), sig("15m","L"), sig("30m","S"), sig("30m","M"), sig("30m","L")]
@@ -641,7 +635,6 @@ def analyze_market_state(all_events, rsi_data=None):
     small_g = sum(1 for s in small if s == "GOLDEN")
     small_d = sum(1 for s in small if s == "DEATH")
 
-    # RSI context
     rsi_ctx = ""
     if rsi_data:
         latest_key = all_sorted[-1] if all_sorted else None
@@ -656,7 +649,6 @@ def analyze_market_state(all_events, rsi_data=None):
                     rsi_ctx = f" RSI {iv}={int(v)}"
                     break
 
-    # 1d Death Cross (50/200) — major event
     if sig("1d", "L") == "DEATH":
         latest_1d_l = None
         for (d, t) in reversed(all_sorted):
@@ -666,7 +658,6 @@ def analyze_market_state(all_events, rsi_data=None):
         if latest_1d_l and latest_1d_l == all_sorted[-1]:
             return f"🔴 1d Death Cross 50/200{rsi_ctx}"
 
-    # 1d Golden Cross (50/200)
     if sig("1d", "L") == "GOLDEN":
         latest_1d_l = None
         for (d, t) in reversed(all_sorted):
@@ -676,35 +667,23 @@ def analyze_market_state(all_events, rsi_data=None):
         if latest_1d_l and latest_1d_l == all_sorted[-1]:
             return f"🟢 1d Golden Cross 50/200{rsi_ctx}"
 
-    # Full Bull — 1d+4h+1h all golden
     if big_g >= 5 and mid_g >= 2:
         return f"🟢 Full Bull{rsi_ctx}"
-
-    # Full Bear
     if big_d >= 5 and mid_d >= 2:
         return f"🔴 Full Bear{rsi_ctx}"
-
-    # Bull Wave — big green, small following
     if big_g >= 4 and small_g >= 3:
         return f"🟢 Bull Wave{rsi_ctx}"
-
-    # Bear Wave
     if big_d >= 4 and small_d >= 3:
         return f"🔴 Bear Wave{rsi_ctx}"
-
-    # Divergence — small vs big disagree
     if small_g >= 4 and big_d >= 4:
         return f"⚠️ Divergence: Short↑ Long↓{rsi_ctx}"
     if small_d >= 4 and big_g >= 4:
         return f"⚠️ Divergence: Short↓ Long↑{rsi_ctx}"
-
-    # Momentum fading — mid/small turning against big
     if big_g >= 3 and mid_d >= 2 and small_d >= 3:
         return f"⚠️ Momentum Fading{rsi_ctx}"
     if big_d >= 3 and mid_g >= 2 and small_g >= 3:
         return f"⚠️ Recovering{rsi_ctx}"
 
-    # Mixed
     total_g = big_g + mid_g + small_g
     total_d = big_d + mid_d + small_d
     if total_g > total_d:
@@ -712,6 +691,7 @@ def analyze_market_state(all_events, rsi_data=None):
     elif total_d > total_g:
         return f"🟡 Lean Bear{rsi_ctx}"
     return f"🟡 Mixed{rsi_ctx}"
+
 
 def find_last_4h_cross(all_events):
     """Find timestamp of latest 4h interval cross event."""
@@ -733,9 +713,9 @@ now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 print(f"[{now_str}] report.py starting...")
 
 # 1. Collect events from CSV
-sections    = []
-all_new_evs = []
-asset_states = {}
+sections      = []
+all_new_evs   = []
+asset_states  = {}
 
 for asset_name in ASSETS:
     all_events = collect_events(asset_name)
@@ -743,8 +723,8 @@ for asset_name in ASSETS:
     sections.append(build_table_html(asset_name, all_events, rsi_data))
     asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
     print(f"  {asset_name}: {asset_states[asset_name]}")
-    
-    # Check for new events not yet sent (back to last 4h cross)
+
+    # Find cutoff = last 4h cross
     last_4h = find_last_4h_cross(all_events)
     email_cutoff_dt = last_4h if last_4h else now - timedelta(hours=4)
     for (date_str, time_str), ev in all_events.items():
@@ -754,18 +734,18 @@ for asset_name in ASSETS:
         for interval, pairs in ev["crosses"].items():
             for label, cross in pairs.items():
                 ek = event_key(asset_name, date_str, time_str, interval, label, cross)
-                if ek not in state["sent_events"]:
-                    all_new_evs.append({
-                        "asset":      asset_name,
-                        "date":       date_str,
-                        "time":       time_str,
-                        "interval":   interval,
-                        "label":      label,
-                        "label_full": LABEL_FULL.get(label, label),
-                        "cross":      cross,
-                        "price":      ev["price"],
-                        "event_key":  ek,
-                    })
+                ev_data = {
+                    "asset":      asset_name,
+                    "date":       date_str,
+                    "time":       time_str,
+                    "interval":   interval,
+                    "label":      label,
+                    "label_full": LABEL_FULL.get(label, label),
+                    "cross":      cross,
+                    "price":      ev["price"],
+                    "event_key":  ek,
+                }
+                all_new_evs.append(ev_data)
 
 # 2. Generate HTML
 html = build_html(sections)
@@ -779,7 +759,10 @@ if DRIVE_FOLDER_ID:
     upload_to_drive(OUTPUT_HTML, DRIVE_FOLDER_ID)
 
 # 4. Send email if new events + cooldown OK
-if all_new_evs:
+# Split: truly_new triggers email, all_new_evs shown in content
+truly_new = [e for e in all_new_evs if e["event_key"] not in state["sent_events"]]
+
+if truly_new:
     last_email = state.get("last_email")
     can_send   = True
     if last_email:
@@ -790,16 +773,16 @@ if all_new_evs:
 
     if can_send:
         state_parts = [f"{a}: {s}" for a, s in asset_states.items()]
-        subject = f"⚡ {' | '.join(state_parts)} — {len(all_new_evs)} new"
+        subject = f"⚡ {' | '.join(state_parts)} — {len(truly_new)} new"
+        # Email body shows ALL events from 4h cutoff, not just new
         body_html = build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID, asset_states)
         if send_email(subject, body_html):
             state["last_email"] = now.isoformat()
-            print(f"  Email sent: {len(all_new_evs)} new event(s)")
+            print(f"  Email sent: {len(truly_new)} new, {len(all_new_evs)} total shown")
 
-    # Mark all new events as sent
-    for ev in all_new_evs:
-        if ev["event_key"] not in state["sent_events"]:
-            state["sent_events"].append(ev["event_key"])
+    # Mark only truly new as sent
+    for ev in truly_new:
+        state["sent_events"].append(ev["event_key"])
 
     state["sent_events"] = state["sent_events"][-2000:]
 else:
