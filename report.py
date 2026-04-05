@@ -480,18 +480,17 @@ def build_html(sections):
 
 def event_key(asset, date_str, time_str, interval, label, cross):
     return f"{asset}|{date_str}|{time_str}|{interval}|{label}|{cross}"
-
-
+    
+    
 def send_email(subject, body_html):
     if not GMAIL_PASSWORD:
         print("  Email SKIP: GMAIL_APP_PASSWORD not set")
         return False
     try:
-        msg = MIMEMultipart("alternative")
+        msg = MIMEText(body_html, "html")
         msg["Subject"] = subject
         msg["From"]    = GMAIL_SENDER
         msg["To"]      = ALERT_TO
-        msg.attach(MIMEText(body_html, "html"))
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
             s.login(GMAIL_SENDER, GMAIL_PASSWORD)
             s.sendmail(GMAIL_SENDER, ALERT_TO, msg.as_string())
@@ -507,9 +506,9 @@ def build_email_body(new_events_list, now_str, folder_id="", asset_states=None):
     for ev in new_events_list:
         by_asset.setdefault(ev["asset"], []).append(ev)
 
-    drive_link = "https://drive.google.com/file/d/13m1l3mk6uQlS1XGs9F3EFOO1_d8ik2oF/view" if folder_id else ""
-    link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>' if drive_link else ""
-
+    pages_link = "https://payotorn-droid.github.io/ema-cross-alert/"
+    link_html = f'<a href="{pages_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>'
+    
     # State badges
     state_html = ""
     if asset_states:
