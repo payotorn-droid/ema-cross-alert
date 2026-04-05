@@ -713,6 +713,16 @@ def analyze_market_state(all_events, rsi_data=None):
         return f"🟡 Lean Bear{rsi_ctx}"
     return f"🟡 Mixed{rsi_ctx}"
 
+def find_last_4h_cross(all_events):
+    """Find timestamp of latest 4h interval cross event."""
+    last_ts = None
+    for (date_str, time_str), ev in all_events.items():
+        if "4h" in ev["crosses"]:
+            ts = pd.Timestamp(f"{date_str} {time_str}")
+            if last_ts is None or ts > last_ts:
+                last_ts = ts
+    return last_ts
+
 
 # ── Main ─────────────────────────────────────────────────────
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -733,9 +743,10 @@ for asset_name in ASSETS:
     sections.append(build_table_html(asset_name, all_events, rsi_data))
     asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
     print(f"  {asset_name}: {asset_states[asset_name]}")
-
-    # Check for new events not yet sent (only recent ones)
-    email_cutoff_dt = now - timedelta(hours=4)
+    
+    # Check for new events not yet sent (back to last 4h cross)
+    last_4h = find_last_4h_cross(all_events)
+    email_cutoff_dt = last_4h if last_4h else now - timedelta(hours=4)
     for (date_str, time_str), ev in all_events.items():
         ts_event = pd.Timestamp(f"{date_str} {time_str}")
         if ts_event < email_cutoff_dt:
