@@ -507,8 +507,8 @@ def build_email_body(new_events_list, now_str, folder_id="", asset_states=None):
     for ev in new_events_list:
         by_asset.setdefault(ev["asset"], []).append(ev)
 
-   drive_link = "https://drive.google.com/file/d/13m1l3mk6uQlS1XGs9F3EFOO1_d8ik2oF/view" if folder_id else ""
-        link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>' if drive_link else ""
+    drive_link = "https://drive.google.com/file/d/13m1l3mk6uQlS1XGs9F3EFOO1_d8ik2oF/view" if folder_id else ""
+    link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>' if drive_link else ""
 
     # State badges
     state_html = ""
@@ -739,7 +739,7 @@ for asset_name in ASSETS:
     email_cutoff_dt = now - timedelta(hours=4)
     for (date_str, time_str), ev in all_events.items():
         ts_event = pd.Timestamp(f"{date_str} {time_str}")
-if ts_event < email_cutoff_dt:
+        if ts_event < email_cutoff_dt:
             continue
         for interval, pairs in ev["crosses"].items():
             for label, cross in pairs.items():
