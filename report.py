@@ -507,8 +507,8 @@ def build_email_body(new_events_list, now_str, folder_id="", asset_states=None):
     for ev in new_events_list:
         by_asset.setdefault(ev["asset"], []).append(ev)
 
-    drive_link = f"https://drive.google.com/drive/folders/{folder_id}" if folder_id else ""
-    link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>' if drive_link else ""
+   drive_link = "https://drive.google.com/file/d/13m1l3mk6uQlS1XGs9F3EFOO1_d8ik2oF/view" if folder_id else ""
+        link_html = f'<a href="{drive_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>' if drive_link else ""
 
     # State badges
     state_html = ""
