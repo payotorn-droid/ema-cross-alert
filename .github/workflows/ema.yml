@@ -10,11 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write
+      id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -41,3 +43,16 @@ jobs:
           git add data/report_state.json
           git diff --cached --quiet || git commit -m "Update state [skip ci]"
           git push
+
+      - name: Prepare Pages
+        run: |
+          mkdir -p _site
+          cp data/ema_cross_report.html _site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages@v4
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
