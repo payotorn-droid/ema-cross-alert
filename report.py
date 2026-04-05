@@ -736,9 +736,10 @@ for asset_name in ASSETS:
     print(f"  {asset_name}: {asset_states[asset_name]}")
 
     # Check for new events not yet sent (only recent ones)
-    email_cutoff = (now - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    email_cutoff_dt = now - timedelta(hours=4)
     for (date_str, time_str), ev in all_events.items():
-        if date_str < email_cutoff:
+        ts_event = pd.Timestamp(f"{date_str} {time_str}")
+if ts_event < email_cutoff_dt:
             continue
         for interval, pairs in ev["crosses"].items():
             for label, cross in pairs.items():
