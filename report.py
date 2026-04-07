@@ -183,6 +183,66 @@ def rsi_cell(val, iv_sep=False, iv=""):
         return f'<td class="{cls}rsi"{attr}>{val:.0f}</td>'
 
 
+def build_indicator_html(all_events, display_keys, rsi_data):
+    """Build compact min-max indicator: horizontal price bar + 5 vertical RSI bars."""
+    if not display_keys:
+        return ""
+
+    # Price range from displayed event rows
+    prices = [all_events[k]["price"] for k in display_keys]
+    p_min, p_max = min(prices), max(prices)
+    p_cur = all_events[display_keys[-1]]["price"]
+    p_pct = ((p_cur - p_min) / (p_max - p_min) * 100) if p_max > p_min else 50
+
+    # RSI for each interval at latest timestamp
+    last_key = display_keys[-1]
+    rsi_row = lookup_rsi(rsi_data, last_key[0], last_key[1]) if rsi_data else {}
+
+    # Color helper for price (red→yellow→green by position)
+    def price_color(pct):
+        if pct < 33:   return "#ef4444"
+        if pct < 66:   return "#eab308"
+        return "#22c55e"
+
+    # RSI bars (vertical)
+    rsi_bars = ""
+    for iv in INTERVALS:
+        v = rsi_row.get(iv)
+        if v is None:
+            rsi_bars += f'<div class="rsi-bar"><div class="rsi-track"></div><div class="rsi-lbl">{iv}</div><div class="rsi-val">—</div></div>'
+            continue
+        # marker position from bottom: 0 = bottom, 100 = top
+        pos = max(0, min(100, v))
+        if v >= 70:    mcolor = "#ef4444"
+        elif v <= 30:  mcolor = "#22c55e"
+        else:          mcolor = "#eab308"
+        rsi_bars += f"""<div class="rsi-bar">
+            <div class="rsi-track">
+              <div class="rsi-marker" style="bottom:{pos}%;background:{mcolor};"></div>
+            </div>
+            <div class="rsi-lbl">{iv}</div>
+            <div class="rsi-val" style="color:{mcolor};">{int(v)}</div>
+          </div>"""
+
+    return f"""
+    <div class="indicator-box">
+      <div class="ind-price">
+        <div class="ind-price-label">Price</div>
+        <div class="ind-price-bar">
+          <span class="ind-min">{fmt_price(p_min)}</span>
+          <div class="ind-track">
+            <div class="ind-marker" style="left:{p_pct:.0f}%;background:{price_color(p_pct)};"></div>
+          </div>
+          <span class="ind-max">{fmt_price(p_max)}</span>
+        </div>
+      </div>
+      <div class="ind-rsi">
+        <div class="ind-rsi-label">RSI</div>
+        <div class="ind-rsi-bars">{rsi_bars}</div>
+      </div>
+    </div>
+    """
+
 def build_table_html(asset_name, all_events, rsi_data=None):
     n_ema       = len(EMA_PAIRS)
     n_sub       = n_ema + 1   # S, M, L, R per interval
@@ -213,6 +273,8 @@ def build_table_html(asset_name, all_events, rsi_data=None):
                     col_price[(iv, lbl)] = ev["price"]
 
     # Latest event summary
+    indicator_html = build_indicator_html(all_events, display_keys, rsi_data)
+    
     summary_html = ""
     if display_keys:
         last_key  = display_keys[-1]
@@ -302,10 +364,13 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     if not rows_html:
         rows_html = f'<tr><td colspan="{total_cols}" class="empty">No EMA cross events</td></tr>'
 
-    return f"""
+return f"""
     <div class="asset-block">
       <div class="asset-title">{asset_name}</div>
-      {summary_html}
+      <div class="asset-header">
+        <div class="asset-header-left">{summary_html}</div>
+        {indicator_html}
+      </div>
       <div class="table-scroll">
         <table>
           <thead>{h1}{h2}{h1b}{h2b}</thead>
@@ -357,6 +422,23 @@ def build_html(sections):
   .leg{{display:flex;align-items:center;gap:4px;}}
   .lg{{background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
   .ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
+  .asset-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}}
+  .asset-header-left{{flex:1;min-width:0;}}
+  .indicator-box{{flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);min-width:240px;}}
+  .ind-price{{display:flex;align-items:center;gap:8px;}}
+  .ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
+  .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
+  .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
+  .ind-track{{flex:1;height:6px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
+  .ind-marker{{position:absolute;top:-3px;width:4px;height:12px;border-radius:2px;transform:translateX(-2px);box-shadow:0 0 0 1.5px var(--bg2);}}
+  .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
+  .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
+  .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
+  .rsi-bar{{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}}
+  .rsi-track{{width:6px;height:32px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
+  .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;box-shadow:0 0 0 1px var(--bg2);}}
+  .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
+  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;}}
   .summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
   .summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
   .summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
