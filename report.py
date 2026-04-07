@@ -19,7 +19,7 @@ GMAIL_SENDER   = "payotorn@gmail.com"
 GMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 ALERT_TO       = "payotorn@gmail.com"
 
-MAX_ROWS       = 30
+MAX_ROWS       = 200
 LOOKBACK_DAYS  = 30
 MIN_EMAIL_GAP  = 60
 
