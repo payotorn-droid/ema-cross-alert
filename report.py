@@ -232,6 +232,7 @@ def build_indicator_html(all_events, display_keys, rsi_data):
           <span class="ind-min">{fmt_price(p_min)}</span>
           <div class="ind-track">
             <div class="ind-marker" style="left:{p_pct:.0f}%;background:{price_color(p_pct)};"></div>
+            <div class="ind-cur" style="left:{p_pct:.0f}%;color:{price_color(p_pct)};">{fmt_price(p_cur)}</div>
           </div>
           <span class="ind-max">{fmt_price(p_max)}</span>
         </div>
@@ -368,8 +369,8 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     <div class="asset-block">
       <div class="asset-title">{asset_name}</div>
       <div class="asset-header">
-        <div class="asset-header-left">{summary_html}</div>
         {indicator_html}
+        <div class="asset-header-left">{summary_html}</div>
       </div>
       <div class="table-scroll">
         <table>
@@ -425,17 +426,18 @@ def build_html(sections):
   .asset-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}}
   .asset-header-left{{flex:1;min-width:0;}}
   .indicator-box{{flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);min-width:240px;}}
-  .ind-price{{display:flex;align-items:center;gap:8px;}}
+  .ind-price{{display:flex;align-items:center;gap:8px;padding-bottom:14px;}}
   .ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
   .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
   .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
-  .ind-track{{flex:1;height:6px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
-  .ind-marker{{position:absolute;top:-3px;width:4px;height:12px;border-radius:2px;transform:translateX(-2px);box-shadow:0 0 0 1.5px var(--bg2);}}
+  .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#dc2626 0%,#ca8a04 50%,#16a34a 100%);position:relative;opacity:.85;}}
+  .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;}}
+  .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;}}
   .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
   .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
   .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
   .rsi-bar{{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}}
-  .rsi-track{{width:6px;height:32px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
+  .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#16a34a 0%,#ca8a04 50%,#dc2626 100%);position:relative;opacity:.85;}}
   .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;box-shadow:0 0 0 1px var(--bg2);}}
   .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
   .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;}}
