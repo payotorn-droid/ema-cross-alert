@@ -368,10 +368,8 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     return f"""
     <div class="asset-block">
       <div class="asset-title">{asset_name}</div>
-      <div class="asset-header">
-        {indicator_html}
-        <div class="asset-header-left">{summary_html}</div>
-      </div>
+      {summary_html}
+      {indicator_html}
       <div class="table-scroll">
         <table>
           <thead>{h1}{h2}{h1b}{h2b}</thead>
@@ -425,7 +423,7 @@ def build_html(sections):
   .ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
   .asset-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}}
   .asset-header-left{{flex:1;min-width:0;}}
-  .indicator-box{{flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);min-width:240px;}}
+  .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);min-width:240px;margin-bottom:8px;}}
   .ind-price{{display:flex;align-items:center;gap:8px;padding-bottom:14px;}}
   .ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
   .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
