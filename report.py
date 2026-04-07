@@ -364,7 +364,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     if not rows_html:
         rows_html = f'<tr><td colspan="{total_cols}" class="empty">No EMA cross events</td></tr>'
 
-return f"""
+    return f"""
     <div class="asset-block">
       <div class="asset-title">{asset_name}</div>
       <div class="asset-header">
