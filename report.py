@@ -376,7 +376,7 @@ def build_full_heatmap_html(asset_name, all_events, years=4):
     </div>
     """
     
-    def build_table_html(asset_name, all_events, rsi_data=None):
+def build_table_html(asset_name, all_events, rsi_data=None):
     n_ema       = len(EMA_PAIRS)
     n_sub       = n_ema + 1   # S, M, L, R per interval
     total_cols  = 2 + len(INTERVALS) * n_sub
