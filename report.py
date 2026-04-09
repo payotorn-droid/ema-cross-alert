@@ -303,7 +303,80 @@ def build_heatmap_html(all_events, display_keys):
     </div>
     """
 
-def build_table_html(asset_name, all_events, rsi_data=None):
+def build_full_heatmap_html(asset_name, all_events, years=4):
+    """Build full-history heatmap for modal. Cell 8x1 px."""
+    CELL_W = 8
+    CELL_H = 1
+    GAP    = 1
+    n_tf   = len(INTERVALS)
+    n_ema  = len(EMA_PAIRS)
+    cols   = n_tf * n_ema
+
+    # Filter events within N years
+    cutoff = pd.Timestamp.now() - pd.Timedelta(days=365 * years)
+    all_sorted = sorted(all_events.keys())
+    display_keys = [k for k in all_sorted if pd.Timestamp(f"{k[0]} {k[1]}") >= cutoff]
+
+    if not display_keys:
+        return ""
+
+    rows = len(display_keys)
+    width  = cols * CELL_W + (n_tf - 1) * GAP
+    height = rows * CELL_H
+
+    # Track state across pre-cutoff events
+    col_state = {}
+    pre_keys = [k for k in all_sorted if k not in display_keys]
+    for k in pre_keys:
+        ev = all_events[k]
+        for iv in INTERVALS:
+            for _, _, lbl in EMA_PAIRS:
+                c = ev["crosses"].get(iv, {}).get(lbl)
+                if c:
+                    col_state[(iv, lbl)] = c
+
+    rects = ""
+    for r_idx, key in enumerate(display_keys):
+        ev = all_events[key]
+        y = r_idx * CELL_H
+        for iv_idx, iv in enumerate(INTERVALS):
+            iv_data = ev["crosses"].get(iv, {})
+            for lbl_idx, (_, _, lbl) in enumerate(EMA_PAIRS):
+                x = (iv_idx * n_ema + lbl_idx) * CELL_W + iv_idx * GAP
+                cross = iv_data.get(lbl)
+                if cross:
+                    col_state[(iv, lbl)] = cross
+                    fill = "#16a34a" if cross == "GOLDEN" else "#dc2626"
+                else:
+                    state_c = col_state.get((iv, lbl))
+                    if state_c == "GOLDEN":
+                        fill = "#dcfce7"
+                    elif state_c == "DEATH":
+                        fill = "#fee2e2"
+                    else:
+                        fill = "#f1efe8"
+                rects += f'<rect x="{x}" y="{y}" width="{CELL_W}" height="{CELL_H}" fill="{fill}"/>'
+
+    first_date = display_keys[0][0]
+    last_date  = display_keys[-1][0]
+
+    return f"""
+    <div class="modal-overlay" id="modal-{asset_name}" onclick="if(event.target===this)closeModal('{asset_name}')">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div class="modal-title">{asset_name} · Full Heatmap · {rows} events · {first_date} → {last_date}</div>
+          <button class="modal-close" onclick="closeModal('{asset_name}')">×</button>
+        </div>
+        <div class="modal-body">
+          <svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+            {rects}
+          </svg>
+        </div>
+      </div>
+    </div>
+    """
+    
+    def build_table_html(asset_name, all_events, rsi_data=None):
     n_ema       = len(EMA_PAIRS)
     n_sub       = n_ema + 1   # S, M, L, R per interval
     total_cols  = 2 + len(INTERVALS) * n_sub
@@ -327,6 +400,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     # Latest event summary
     indicator_html = build_indicator_html(all_events, display_keys, rsi_data)
     heatmap_html = build_heatmap_html(all_events, display_keys)
+    full_heatmap_html = build_full_heatmap_html(asset_name, all_events, years=4)
     
     summary_html = ""
     if display_keys:
@@ -423,8 +497,12 @@ def build_table_html(asset_name, all_events, rsi_data=None):
       {summary_html}
       <div class="ind-heatmap-wrap">
         {indicator_html}
-        {heatmap_html}
+        <div class="heatmap-row">
+          {heatmap_html}
+          <button class="heatmap-expand" onclick="openModal('{asset_name}')" title="View 4-year heatmap">⛶</button>
+        </div>
       </div>
+      {full_heatmap_html}
       <div class="table-scroll">
         <table>
           <thead>{h1}{h2}{h1b}{h2b}</thead>
@@ -541,6 +619,17 @@ def build_html(sections):
   .rsi-hdr{{color:var(--gold)!important;}}
   .empty{{text-align:center;color:var(--text4);padding:14px;font-weight:400;}}
   .footer{{font-size:10px;color:var(--text4);text-align:center;margin-top:6px;}}
+  .heatmap-row{{display:flex;align-items:flex-start;gap:6px;}}
+  .heatmap-expand{{flex-shrink:0;width:28px;height:28px;border-radius:6px;background:var(--bg2);border:1.5px solid var(--border2);color:var(--text2);font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;}}
+  .heatmap-expand:hover{{border-color:var(--gold);color:var(--gold);}}
+  .modal-overlay{{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;padding:20px;}}
+  .modal-overlay.open{{display:flex;}}
+  .modal-content{{background:var(--bg2);border:1.5px solid var(--border2);border-radius:12px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}}
+  .modal-header{{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:12px;}}
+  .modal-title{{font-size:12px;font-weight:700;color:var(--gold);}}
+  .modal-close{{background:none;border:none;color:var(--text);font-size:24px;font-weight:700;cursor:pointer;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;}}
+  .modal-close:hover{{background:var(--bg4);}}
+  .modal-body{{overflow:auto;padding:12px;flex:1;}}
 </style>
 </head>
 <body>
