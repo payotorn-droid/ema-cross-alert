@@ -249,16 +249,8 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     n_sub       = n_ema + 1   # S, M, L, R per interval
     total_cols  = 2 + len(INTERVALS) * n_sub
     all_sorted  = sorted(all_events.keys())
-    # Hybrid: from last 1d cross, capped at MAX_ROWS
-    last_1d = find_last_1d_cross(all_events)
-    if last_1d:
-        cutoff_str = (last_1d.strftime("%Y-%m-%d"), last_1d.strftime("%H:%M"))
-        display_keys = [k for k in all_sorted if k >= cutoff_str]
-    else:
-        display_keys = all_sorted
-    if len(display_keys) > MAX_ROWS:
-        display_keys = display_keys[-MAX_ROWS:]
-
+    display_keys = all_sorted[-MAX_ROWS:]
+    
     # Pre-scan ALL events to build col_state before display window
     col_state = {}
     col_price = {}
