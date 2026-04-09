@@ -249,7 +249,7 @@ def build_heatmap_html(all_events, display_keys):
     if not display_keys:
         return ""
 
-    CELL_W = 5
+    CELL_W = 12
     CELL_H = 2
     GAP    = 1  # gap between timeframe groups
     n_tf   = len(INTERVALS)
