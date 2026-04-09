@@ -166,7 +166,10 @@
     "Bitcoin|2026-04-09|15:30|30m|M|GOLDEN",
     "Bitcoin|2026-04-09|16:45|15m|M|GOLDEN",
     "Bitcoin|2026-04-09|16:30|30m|S|GOLDEN",
-    "Bitcoin|2026-04-09|16:00|30m|M|GOLDEN"
+    "Bitcoin|2026-04-09|16:00|30m|M|GOLDEN",
+    "Gold|2026-04-09|17:30|15m|M|GOLDEN",
+    "Gold|2026-04-09|17:30|30m|S|GOLDEN",
+    "Gold|2026-04-09|18:15|15m|L|GOLDEN"
   ],
-  "last_email": "2026-04-09T17:15:52.641412"
+  "last_email": "2026-04-09T18:32:12.993094"
 }
