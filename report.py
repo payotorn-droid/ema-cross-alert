@@ -658,6 +658,14 @@ def build_html(sections):
   let groupMode='iv';
   const ivs=['15m','30m','1h','4h','1d'];
   const lbls=['S','M','L','R'];
+  function openModal(name){{
+    const m=document.getElementById('modal-'+name);
+    if(m)m.classList.add('open');
+  }}
+  function closeModal(name){{
+    const m=document.getElementById('modal-'+name);
+    if(m)m.classList.remove('open');
+  }}
   function toggleTheme(){{
     const h=document.documentElement,dark=h.getAttribute('data-theme')==='dark';
     h.setAttribute('data-theme',dark?'light':'dark');
