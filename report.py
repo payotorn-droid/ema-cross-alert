@@ -244,6 +244,65 @@ def build_indicator_html(all_events, display_keys, rsi_data):
     </div>
     """
 
+def build_heatmap_html(all_events, display_keys):
+    """Build SVG heatmap: 200 rows x 15 cols (5 tf x 3 EMA). Cell 5x2 px."""
+    if not display_keys:
+        return ""
+
+    CELL_W = 5
+    CELL_H = 2
+    GAP    = 1  # gap between timeframe groups
+    n_tf   = len(INTERVALS)
+    n_ema  = len(EMA_PAIRS)
+    cols   = n_tf * n_ema
+    rows   = len(display_keys)
+
+    width  = cols * CELL_W + (n_tf - 1) * GAP
+    height = rows * CELL_H
+
+    # Track state per (iv, lbl) across full history (for bg tint)
+    col_state = {}
+    all_sorted = sorted(all_events.keys())
+    pre_keys = [k for k in all_sorted if k not in display_keys]
+    for k in pre_keys:
+        ev = all_events[k]
+        for iv in INTERVALS:
+            for _, _, lbl in EMA_PAIRS:
+                c = ev["crosses"].get(iv, {}).get(lbl)
+                if c:
+                    col_state[(iv, lbl)] = c
+
+    rects = ""
+    for r_idx, key in enumerate(display_keys):
+        ev = all_events[key]
+        y = r_idx * CELL_H
+        for iv_idx, iv in enumerate(INTERVALS):
+            iv_data = ev["crosses"].get(iv, {})
+            for lbl_idx, (_, _, lbl) in enumerate(EMA_PAIRS):
+                x = (iv_idx * n_ema + lbl_idx) * CELL_W + iv_idx * GAP
+                cross = iv_data.get(lbl)
+                if cross:
+                    col_state[(iv, lbl)] = cross
+                    fill = "#16a34a" if cross == "GOLDEN" else "#dc2626"
+                else:
+                    state_c = col_state.get((iv, lbl))
+                    if state_c == "GOLDEN":
+                        fill = "#dcfce7"
+                    elif state_c == "DEATH":
+                        fill = "#fee2e2"
+                    else:
+                        fill = "#f1efe8"
+                rects += f'<rect x="{x}" y="{y}" width="{CELL_W}" height="{CELL_H}" fill="{fill}"/>'
+
+    return f"""
+    <div class="heatmap-box">
+      <div class="heatmap-label">HEATMAP · {rows} rows</div>
+      <svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+        {rects}
+      </svg>
+    </div>
+    """
+
 def build_table_html(asset_name, all_events, rsi_data=None):
     n_ema       = len(EMA_PAIRS)
     n_sub       = n_ema + 1   # S, M, L, R per interval
@@ -267,6 +326,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
 
     # Latest event summary
     indicator_html = build_indicator_html(all_events, display_keys, rsi_data)
+    heatmap_html = build_heatmap_html(all_events, display_keys)
     
     summary_html = ""
     if display_keys:
@@ -361,7 +421,10 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     <div class="asset-block">
       <div class="asset-title">{asset_name}</div>
       {summary_html}
-      {indicator_html}
+      <div class="ind-heatmap-wrap">
+        {indicator_html}
+        {heatmap_html}
+      </div>
       <div class="table-scroll">
         <table>
           <thead>{h1}{h2}{h1b}{h2b}</thead>
@@ -415,20 +478,23 @@ def build_html(sections):
   .ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
   .asset-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}}
   .asset-header-left{{flex:1;min-width:0;}}
-  .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);min-width:240px;margin-bottom:8px;}}
+  .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
+  .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
+  .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
+  .heatmap-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
   .ind-price{{display:flex;align-items:center;gap:8px;padding-bottom:14px;}}
   .ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
   .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
   .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
-  .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#dc2626 0%,#ca8a04 50%,#16a34a 100%);position:relative;opacity:.85;}}
-  .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;}}
+  .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
+  .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;}}
   .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;}}
   .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
   .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
   .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
   .rsi-bar{{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}}
-  .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#16a34a 0%,#ca8a04 50%,#dc2626 100%);position:relative;opacity:.85;}}
-  .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;box-shadow:0 0 0 1px var(--bg2);}}
+  .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
+  .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);}}
   .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
   .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;}}
   .summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
