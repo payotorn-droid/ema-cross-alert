@@ -226,7 +226,7 @@ def build_indicator_html(all_events, display_keys, rsi_data):
               <div class="rsi-marker" style="bottom:{pos}%;background:{mcolor};"></div>
             </div>
             <div class="rsi-lbl">{iv}</div>
-            <div class="rsi-val" style="color:{mcolor};">{int(v)}</div>
+            <div class="rsi-val" style="background:{mcolor};">{int(v)}</div>
           </div>"""
 
     return f"""
@@ -579,7 +579,7 @@ def build_html(sections):
   .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
   .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);}}
   .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
-  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;}}
+  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;}}
   .summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
   .summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
   .summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
