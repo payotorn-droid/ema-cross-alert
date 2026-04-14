@@ -26,6 +26,7 @@ MIN_EMAIL_GAP  = 60
 ASSETS = {
     "Gold":    "GC=F",
     "Bitcoin": "BTC-USD",
+    "XAUBTC":  "XAUBTC",
 }
 
 EMA_PAIRS = [
@@ -167,9 +168,13 @@ def cell_html(cross, iv_sep=False, last_signal=None, last_price=None, cur_price=
 
 
 def fmt_price(price):
-    return f"${price:,.0f}" if price >= 1000 else f"${price:,.2f}"
-
-
+    if price >= 1000:
+        return f"${price:,.0f}"
+    elif price >= 1:
+        return f"${price:,.2f}"
+    else:
+        return f"{price:.6f}"
+        
 def rsi_cell(val, iv_sep=False, iv=""):
     cls = "iv-sep " if iv_sep else ""
     attr = f' data-iv="{iv}" data-lbl="R"'
