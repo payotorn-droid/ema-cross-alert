@@ -593,7 +593,7 @@ def build_html(sections):
   .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
   .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
   .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;transition:left .3s,background .3s;}}
-  .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;}}
+  .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
   .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
   .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
   .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
@@ -601,7 +601,7 @@ def build_html(sections):
   .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
   .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);transition:bottom .3s,background .3s;}}
   .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
-  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;transition:background .3s;}}
+  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;transition:background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
   .summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
   .summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
   .summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
