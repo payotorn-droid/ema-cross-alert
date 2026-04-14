@@ -203,6 +203,7 @@ def build_indicator_html(asset_name, all_events, display_keys, rsi_data):
         rsi_row = lookup_rsi(rsi_data, k[0], k[1]) if rsi_data else {}
         rsi_vals = [rsi_row.get(iv) for iv in INTERVALS]
         frames.append({
+            "ts": f"{k[0]} {k[1]}",
             "price": round(p_pct, 1),
             "priceVal": price,
             "rsi": [round(v, 1) if v is not None else None for v in rsi_vals],
@@ -240,6 +241,10 @@ def build_indicator_html(asset_name, all_events, display_keys, rsi_data):
 
     indicator_html = f"""
     <div class="indicator-box" data-asset="{asset_name}">
+      <div class="ind-timeline">
+        <div class="ind-ts" id="ts-{asset_name}">{cur['ts']}</div>
+        <div class="ind-progress"><div class="ind-progress-fill" id="prog-{asset_name}"></div></div>
+      </div>
       <div class="ind-price">
         <div class="ind-price-label">Price</div>
         <div class="ind-price-bar">
@@ -652,6 +657,10 @@ def build_html(sections):
   .modal-close{{background:none;border:none;color:var(--text);font-size:24px;font-weight:700;cursor:pointer;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;}}
   .modal-close:hover{{background:var(--bg4);}}
   .modal-body{{overflow:auto;padding:12px;flex:1;}}
+  .ind-timeline{{display:flex;align-items:center;gap:8px;margin-bottom:2px;}}
+  .ind-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
+  .ind-progress{{flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}}
+  .ind-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
 </style>
 </head>
 <body>
@@ -741,8 +750,11 @@ def build_html(sections):
     if(!tl||!tl.length)return;
     const dur=8000;
     const frameMs=dur/tl.length;
+    const pauseMs=2000;
     let i=0;
-    setInterval(()=>{{
+    let paused=false;
+    function step(){{
+      if(paused)return;
       const f=tl[i];
       const pmk=document.getElementById('price-mk-'+asset);
       const pcur=document.getElementById('price-cur-'+asset);
@@ -774,8 +786,19 @@ def build_html(sections):
           vl.style.background=c;
         }}
       }}
-      i=(i+1)%tl.length;
-    }},frameMs);
+      const ts=document.getElementById('ts-'+asset);
+      if(ts)ts.textContent=f.ts;
+      const prog=document.getElementById('prog-'+asset);
+      if(prog)prog.style.width=((i+1)/tl.length*100)+'%';
+      if(i===tl.length-1){{
+        paused=true;
+        setTimeout(()=>{{i=0;paused=false;step();}},pauseMs);
+      }}else{{
+        i++;
+        setTimeout(step,frameMs);
+      }}
+    }}
+    step();
   }}
   window.addEventListener('DOMContentLoaded',()=>{{
     document.querySelectorAll('table').forEach(tbl=>{{
