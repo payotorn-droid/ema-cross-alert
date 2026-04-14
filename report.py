@@ -187,57 +187,66 @@ def rsi_cell(val, iv_sep=False, iv=""):
     else:
         return f'<td class="{cls}rsi"{attr}>{val:.0f}</td>'
 
-
-def build_indicator_html(all_events, display_keys, rsi_data):
-    """Build compact min-max indicator: horizontal price bar + 5 vertical RSI bars."""
+def build_indicator_html(asset_name, all_events, display_keys, rsi_data):
+    """Build indicator with pre-computed timeline for animation."""
     if not display_keys:
-        return ""
+        return "", ""
 
-    # Price range from displayed event rows
     prices = [all_events[k]["price"] for k in display_keys]
     p_min, p_max = min(prices), max(prices)
-    p_cur = all_events[display_keys[-1]]["price"]
-    p_pct = ((p_cur - p_min) / (p_max - p_min) * 100) if p_max > p_min else 50
 
-    # RSI for each interval at latest timestamp
-    last_key = display_keys[-1]
-    rsi_row = lookup_rsi(rsi_data, last_key[0], last_key[1]) if rsi_data else {}
+    # Build timeline frames: each = (price_pct, rsi_per_tf)
+    frames = []
+    for k in display_keys:
+        price = all_events[k]["price"]
+        p_pct = ((price - p_min) / (p_max - p_min) * 100) if p_max > p_min else 50
+        rsi_row = lookup_rsi(rsi_data, k[0], k[1]) if rsi_data else {}
+        rsi_vals = [rsi_row.get(iv) for iv in INTERVALS]
+        frames.append({
+            "price": round(p_pct, 1),
+            "priceVal": price,
+            "rsi": [round(v, 1) if v is not None else None for v in rsi_vals],
+        })
 
-    # Color helper for price (red→yellow→green by position)
+    # Initial frame = last (current state)
+    cur = frames[-1]
+
     def price_color(pct):
         if pct < 33:   return "#ef4444"
         if pct < 66:   return "#eab308"
         return "#22c55e"
 
-    # RSI bars (vertical)
+    def rsi_color(v):
+        if v is None: return "#888"
+        if v >= 70:   return "#ef4444"
+        if v <= 30:   return "#22c55e"
+        return "#eab308"
+
     rsi_bars = ""
-    for iv in INTERVALS:
-        v = rsi_row.get(iv)
+    for idx, iv in enumerate(INTERVALS):
+        v = cur["rsi"][idx]
         if v is None:
-            rsi_bars += f'<div class="rsi-bar"><div class="rsi-track"></div><div class="rsi-lbl">{iv}</div><div class="rsi-val">—</div></div>'
+            rsi_bars += f'<div class="rsi-bar"><div class="rsi-track"></div><div class="rsi-lbl">{iv}</div><div class="rsi-val" id="rsi-val-{asset_name}-{idx}">—</div></div>'
             continue
-        # marker position from bottom: 0 = bottom, 100 = top
         pos = max(0, min(100, v))
-        if v >= 70:    mcolor = "#ef4444"
-        elif v <= 30:  mcolor = "#22c55e"
-        else:          mcolor = "#eab308"
+        mcolor = rsi_color(v)
         rsi_bars += f"""<div class="rsi-bar">
             <div class="rsi-track">
-              <div class="rsi-marker" style="bottom:{pos}%;background:{mcolor};"></div>
+              <div class="rsi-marker" id="rsi-mk-{asset_name}-{idx}" style="bottom:{pos}%;background:{mcolor};"></div>
             </div>
             <div class="rsi-lbl">{iv}</div>
-            <div class="rsi-val" style="background:{mcolor};">{int(v)}</div>
+            <div class="rsi-val" id="rsi-val-{asset_name}-{idx}" style="background:{mcolor};">{int(v)}</div>
           </div>"""
 
-    return f"""
-    <div class="indicator-box">
+    indicator_html = f"""
+    <div class="indicator-box" data-asset="{asset_name}">
       <div class="ind-price">
         <div class="ind-price-label">Price</div>
         <div class="ind-price-bar">
           <span class="ind-min">{fmt_price(p_min)}</span>
           <div class="ind-track">
-            <div class="ind-marker" style="left:{p_pct:.0f}%;background:{price_color(p_pct)};"></div>
-            <div class="ind-cur" style="left:{p_pct:.0f}%;background:{price_color(p_pct)};">{fmt_price(p_cur)}</div>
+            <div class="ind-marker" id="price-mk-{asset_name}" style="left:{cur['price']:.0f}%;background:{price_color(cur['price'])};"></div>
+            <div class="ind-cur" id="price-cur-{asset_name}" style="left:{cur['price']:.0f}%;background:{price_color(cur['price'])};">{fmt_price(cur['priceVal'])}</div>
           </div>
           <span class="ind-max">{fmt_price(p_max)}</span>
         </div>
@@ -248,6 +257,13 @@ def build_indicator_html(all_events, display_keys, rsi_data):
       </div>
     </div>
     """
+
+    # Timeline JSON for animation
+    import json as _json
+    timeline_json = _json.dumps(frames)
+    timeline_script = f'<script>window.timeline_{asset_name}={timeline_json};</script>'
+
+    return indicator_html, timeline_script
 
 def build_heatmap_html(all_events, display_keys):
     """Build SVG heatmap: 200 rows x 15 cols (5 tf x 3 EMA). Cell 5x2 px."""
@@ -403,7 +419,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
                     col_price[(iv, lbl)] = ev["price"]
 
     # Latest event summary
-    indicator_html = build_indicator_html(all_events, display_keys, rsi_data)
+    indicator_html, timeline_script = build_indicator_html(asset_name, all_events, display_keys, rsi_data)
     heatmap_html = build_heatmap_html(all_events, display_keys)
     full_heatmap_html = build_full_heatmap_html(asset_name, all_events, years=4)
     
@@ -497,6 +513,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
         rows_html = f'<tr><td colspan="{total_cols}" class="empty">No EMA cross events</td></tr>'
 
     return f"""
+    {timeline_script}
     <div class="asset-block">
       <div class="asset-title">{asset_name}</div>
       {summary_html}
@@ -570,16 +587,16 @@ def build_html(sections):
   .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
   .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
   .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
-  .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;}}
-  .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;}}
+  .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;transition:left .3s,background .3s;}}
+  .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;}}
   .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
   .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
   .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
   .rsi-bar{{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}}
   .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
-  .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);}}
+  .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);transition:bottom .3s,background .3s;}}
   .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
-  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;}}
+  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;transition:background .3s;}}
   .summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
   .summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
   .summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
@@ -703,6 +720,63 @@ def build_html(sections):
       }});
     }});
   }}
+  function priceColor(p){{
+    if(p<33)return'#ef4444';
+    if(p<66)return'#eab308';
+    return'#22c55e';
+  }}
+  function rsiColor(v){{
+    if(v==null)return'#888';
+    if(v>=70)return'#ef4444';
+    if(v<=30)return'#22c55e';
+    return'#eab308';
+  }}
+  function fmtPrice(p){{
+    if(p>=1000)return'$'+p.toLocaleString('en-US',{{maximumFractionDigits:0}});
+    if(p>=1)return'$'+p.toFixed(2);
+    return p.toFixed(4);
+  }}
+  function animateIndicator(asset){{
+    const tl=window['timeline_'+asset];
+    if(!tl||!tl.length)return;
+    const dur=8000;
+    const frameMs=dur/tl.length;
+    let i=0;
+    setInterval(()=>{{
+      const f=tl[i];
+      const pmk=document.getElementById('price-mk-'+asset);
+      const pcur=document.getElementById('price-cur-'+asset);
+      if(pmk){{
+        const c=priceColor(f.price);
+        pmk.style.left=f.price+'%';
+        pmk.style.background=c;
+        if(pcur){{
+          pcur.style.left=f.price+'%';
+          pcur.style.background=c;
+          pcur.textContent=fmtPrice(f.priceVal);
+        }}
+      }}
+      for(let j=0;j<5;j++){{
+        const v=f.rsi[j];
+        const mk=document.getElementById('rsi-mk-'+asset+'-'+j);
+        const vl=document.getElementById('rsi-val-'+asset+'-'+j);
+        if(v==null){{
+          if(vl)vl.textContent='—';
+          continue;
+        }}
+        const c=rsiColor(v);
+        if(mk){{
+          mk.style.bottom=v+'%';
+          mk.style.background=c;
+        }}
+        if(vl){{
+          vl.textContent=Math.round(v);
+          vl.style.background=c;
+        }}
+      }}
+      i=(i+1)%tl.length;
+    }},frameMs);
+  }}
   window.addEventListener('DOMContentLoaded',()=>{{
     document.querySelectorAll('table').forEach(tbl=>{{
       tbl.querySelectorAll('tr').forEach(row=>{{
@@ -722,6 +796,7 @@ def build_html(sections):
       if(left<=0)location.reload();
     }}
     tick();setInterval(tick,1000);
+    ['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);
   }});
 </script>
 </body></html>"""
