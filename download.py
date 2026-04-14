@@ -34,6 +34,40 @@ def load_state():
     return {}
 
 
+# ── Build XAUBTC ratio CSVs from Gold + Bitcoin ──────────────
+print("  Building XAUBTC ratio...")
+for interval_label in INTERVAL_CONFIG.keys():
+    try:
+        gold_path = os.path.join(DATA_DIR, f"Gold_{interval_label}.csv")
+        btc_path  = os.path.join(DATA_DIR, f"Bitcoin_{interval_label}.csv")
+        if not (os.path.exists(gold_path) and os.path.exists(btc_path)):
+            continue
+
+        gold = pd.read_csv(gold_path, index_col=0, parse_dates=True)
+        btc  = pd.read_csv(btc_path,  index_col=0, parse_dates=True)
+
+        # Align on Gold timestamps (drops weekends from BTC)
+        merged = gold[["Close"]].rename(columns={"Close": "G"}).join(
+            btc[["Close"]].rename(columns={"Close": "B"}), how="inner"
+        ).dropna()
+
+        if merged.empty:
+            continue
+
+        ratio = pd.DataFrame(index=merged.index)
+        ratio["Open"]   = merged["G"] / merged["B"]
+        ratio["High"]   = merged["G"] / merged["B"]
+        ratio["Low"]    = merged["G"] / merged["B"]
+        ratio["Close"]  = merged["G"] / merged["B"]
+        ratio["Volume"] = 0
+        ratio.index.name = "Datetime"
+
+        out_path = os.path.join(DATA_DIR, f"XAUBTC_{interval_label}.csv")
+        ratio.to_csv(out_path)
+        print(f"  OK    XAUBTC_{interval_label:<14} {len(ratio):>6,} rows")
+    except Exception as e:
+        print(f"  ERROR XAUBTC_{interval_label:<14} {e}")
+        
 def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
