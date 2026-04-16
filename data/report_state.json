@@ -422,7 +422,8 @@
     "Bitcoin|2026-04-17|02:00|30m|S|GOLDEN",
     "Bitcoin|2026-04-17|02:30|30m|M|GOLDEN",
     "Bitcoin|2026-04-17|01:00|1h|S|GOLDEN",
-    "XAUBTC|2026-04-17|00:30|30m|S|DEATH"
+    "XAUBTC|2026-04-17|00:30|30m|S|DEATH",
+    "Gold|2026-04-17|03:00|1h|M|DEATH"
   ],
   "last_email": "2026-04-17T02:35:12.308401"
 }
