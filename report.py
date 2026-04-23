@@ -540,7 +540,19 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     """
 
 
-def build_html(sections):
+def build_state_map_html(all_assets_state):
+    """Build canvas state map: 5 TF tables x 3 EMA cols, with asset icons at RSI position."""
+    import json as _json
+    data_json = _json.dumps(all_assets_state)
+    return f"""
+    <div class="state-map-box">
+      <div class="state-map-label">STATE MAP</div>
+      <canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas>
+    </div>
+    <script>window._stateMapData={data_json};</script>
+    """
+
+def build_html(sections, state_map_html=""):
     now       = datetime.now().strftime("%Y-%m-%d %H:%M")
     body      = "\n".join(sections)
     return f"""<!DOCTYPE html>
@@ -646,6 +658,8 @@ def build_html(sections):
   .rsi-hdr{{color:var(--gold)!important;}}
   .empty{{text-align:center;color:var(--text4);padding:14px;font-weight:400;}}
   .footer{{font-size:10px;color:var(--text4);text-align:center;margin-top:6px;}}
+  .state-map-box{{margin-bottom:14px;padding:8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
+  .state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
   .heatmap-row{{display:flex;align-items:flex-start;gap:6px;}}
   .heatmap-expand{{flex-shrink:0;width:28px;height:28px;border-radius:6px;background:var(--bg2);border:1.5px solid var(--border2);color:var(--text2);font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;}}
   .heatmap-expand:hover{{border-color:var(--gold);color:var(--gold);}}
@@ -683,6 +697,7 @@ def build_html(sections):
   <div class="leg"><span class="ld">D</span> Death (Sell)</div>
   <div class="leg" style="color:var(--text4);font-weight:400">S=12/26 M=20/50 L=50/200 R=RSI-14</div>
 </div>
+{state_map_html}
 {body}
 <p class="footer">Auto-generated every 15 min · GitHub Actions</p>
 <script>
@@ -1105,8 +1120,39 @@ for asset_name in ASSETS:
                 }
                 all_new_evs.append(ev_data)
 
+# Build state map data
+all_assets_state = {}
+for asset_name in ASSETS:
+    all_events_a = collect_events(asset_name)
+    rsi_data_a   = collect_rsi(asset_name)
+    # Get latest EMA state per (iv, lbl)
+    cs = {}
+    for (d, t) in sorted(all_events_a.keys()):
+        ev = all_events_a[(d, t)]
+        for iv in INTERVALS:
+            for _, _, lbl in EMA_PAIRS:
+                cross = ev["crosses"].get(iv, {}).get(lbl)
+                if cross:
+                    cs[(iv, lbl)] = "G" if cross == "GOLDEN" else "D"
+    # Get latest RSI per interval
+    all_sorted_a = sorted(all_events_a.keys())
+    last_key_a = all_sorted_a[-1] if all_sorted_a else None
+    rsi_row_a = lookup_rsi(rsi_data_a, last_key_a[0], last_key_a[1]) if last_key_a and rsi_data_a else {}
+
+    tf_data = {}
+    for iv in INTERVALS:
+        tf_data[iv] = {
+            "S": cs.get((iv, "S"), "G"),
+            "M": cs.get((iv, "M"), "G"),
+            "L": cs.get((iv, "L"), "G"),
+            "rsi": round(rsi_row_a.get(iv, 50), 0),
+        }
+    all_assets_state[asset_name] = tf_data
+
+state_map_html = build_state_map_html(all_assets_state)
+
 # 2. Generate HTML
-html = build_html(sections)
+html = build_html(sections, state_map_html)
 with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
     f.write(html)
 print(f"  HTML saved: {OUTPUT_HTML}")
