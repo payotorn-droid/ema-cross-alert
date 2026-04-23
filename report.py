@@ -7,581 +7,324 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings("ignore")
 
-# ============================================================
-#  CONFIG
-# ============================================================
 BASE_DIR      = os.path.dirname(__file__)
 DATA_DIR      = os.path.join(BASE_DIR, "data")
 OUTPUT_HTML   = os.path.join(DATA_DIR, "ema_cross_report.html")
 STATE_FILE    = os.path.join(DATA_DIR, "report_state.json")
-
 GMAIL_SENDER   = "payotorn@gmail.com"
 GMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 ALERT_TO       = "payotorn@gmail.com"
-
 MAX_ROWS       = 200
 LOOKBACK_DAYS  = 30
 MIN_EMAIL_GAP  = 60
-
-ASSETS = {
-    "Gold":    "GC=F",
-    "Bitcoin": "BTC-USD",
-    "XAUBTC":  "XAUBTC",
-}
-
-EMA_PAIRS = [
-    (12,  26,  "S"),
-    (20,  50,  "M"),
-    (50, 200,  "L"),
-]
-
+ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC"}
+EMA_PAIRS = [(12, 26, "S"), (20, 50, "M"), (50, 200, "L")]
 INTERVALS = ["15m", "30m", "1h", "4h", "1d"]
-# ============================================================
-
+LABEL_FULL = {"S": "Short 12/26", "M": "Mid 20/50", "L": "Long 50/200"}
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
+        with open(STATE_FILE, "r") as f: return json.load(f)
     return {"sent_events": [], "last_email": None}
 
-
 def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    with open(STATE_FILE, "w") as f: json.dump(state, f, indent=2)
 
-
-def calc_ema(close, p):
-    return close.ewm(span=p, adjust=False).mean()
-
+def calc_ema(close, p): return close.ewm(span=p, adjust=False).mean()
 
 def detect_cross(ema_fast, ema_slow, i):
-    if i < 1:
-        return None
+    if i < 1: return None
     prev = ema_fast.iloc[i-1] - ema_slow.iloc[i-1]
-    curr = ema_fast.iloc[i]   - ema_slow.iloc[i]
-    if prev < 0 and curr >= 0:
-        return "GOLDEN"
-    if prev > 0 and curr <= 0:
-        return "DEATH"
+    curr = ema_fast.iloc[i] - ema_slow.iloc[i]
+    if prev < 0 and curr >= 0: return "GOLDEN"
+    if prev > 0 and curr <= 0: return "DEATH"
     return None
 
-
 def load_csv(asset_name, interval):
-    filepath = os.path.join(DATA_DIR, f"{asset_name}_{interval}.csv")
-    if not os.path.exists(filepath):
-        return None
-    df = pd.read_csv(filepath, index_col=0, parse_dates=True)
-    return df["Close"].dropna()
-
+    fp = os.path.join(DATA_DIR, f"{asset_name}_{interval}.csv")
+    if not os.path.exists(fp): return None
+    return pd.read_csv(fp, index_col=0, parse_dates=True)["Close"].dropna()
 
 def calc_rsi(close, period=14):
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0)
     loss = (-delta).where(delta < 0, 0.0)
-    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
+    ag = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    al = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    return 100 - (100 / (1 + ag / al))
 
 def collect_rsi(asset_name):
-    """Build RSI Series per interval for nearest-timestamp lookup."""
-    rsi_series = {}
-    for interval in INTERVALS:
-        close = load_csv(asset_name, interval)
-        if close is None or len(close) < 20:
-            continue
-        rsi_series[interval] = calc_rsi(close)
-    return rsi_series
-
+    r = {}
+    for iv in INTERVALS:
+        c = load_csv(asset_name, iv)
+        if c is not None and len(c) >= 20: r[iv] = calc_rsi(c)
+    return r
 
 def lookup_rsi(rsi_series, date_str, time_str):
-    """Look up RSI for each interval at nearest timestamp <= event time."""
     result = {}
-    try:
-        ts = pd.Timestamp(f"{date_str} {time_str}")
-    except Exception:
-        return result
+    try: ts = pd.Timestamp(f"{date_str} {time_str}")
+    except: return result
     for iv, rsi in rsi_series.items():
-        val = rsi.asof(ts)
-        if pd.notna(val):
-            result[iv] = round(float(val), 1)
+        v = rsi.asof(ts)
+        if pd.notna(v): result[iv] = round(float(v), 1)
     return result
-
 
 def collect_events(asset_name):
     all_events = {}
-
     for interval in INTERVALS:
         close = load_csv(asset_name, interval)
-        if close is None:
-            continue
-
+        if close is None: continue
         for fast, slow, label in EMA_PAIRS:
-            if len(close) < slow + 10:
-                continue
-            ema_f = calc_ema(close, fast)
-            ema_s = calc_ema(close, slow)
-
+            if len(close) < slow + 10: continue
+            ema_f, ema_s = calc_ema(close, fast), calc_ema(close, slow)
             for i in range(1, len(close)):
-                ts = close.index[i]
                 cross = detect_cross(ema_f, ema_s, i)
                 if cross:
-                    date_str  = ts.strftime("%Y-%m-%d")
-                    time_str  = ts.strftime("%H:%M")
-                    price_val = float(close.iloc[i])
-                    key = (date_str, time_str)
+                    ts = close.index[i]
+                    ds, tm = ts.strftime("%Y-%m-%d"), ts.strftime("%H:%M")
+                    key = (ds, tm)
                     if key not in all_events:
-                        all_events[key] = {"price": price_val, "crosses": {}}
+                        all_events[key] = {"price": float(close.iloc[i]), "crosses": {}}
                     all_events[key]["crosses"].setdefault(interval, {})[label] = cross
-
     return all_events
-
 
 def cell_html(cross, iv_sep=False, last_signal=None, last_price=None, cur_price=None, iv="", lbl=""):
     classes = []
-    if iv_sep:
-        classes.append("iv-sep")
+    if iv_sep: classes.append("iv-sep")
     attr = f' data-iv="{iv}" data-lbl="{lbl}"'
     if cross == "GOLDEN":
-        cls_str = f' class="{" ".join(classes)}"' if classes else ''
-        return f'<td{cls_str}{attr}><span class="g">G</span></td>'
+        cs = f' class="{" ".join(classes)}"' if classes else ''
+        return f'<td{cs}{attr}><span class="g">G</span></td>'
     elif cross == "DEATH":
-        cls_str = f' class="{" ".join(classes)}"' if classes else ''
-        return f'<td{cls_str}{attr}><span class="d">D</span></td>'
+        cs = f' class="{" ".join(classes)}"' if classes else ''
+        return f'<td{cs}{attr}><span class="d">D</span></td>'
     else:
         if last_signal and last_price and cur_price:
-            if last_signal == "GOLDEN":
-                classes.append("bg-g")
-            elif last_signal == "DEATH":
-                classes.append("bg-d")
-            cls_str = f' class="{" ".join(classes)}"' if classes else ''
-            if cur_price > last_price:
-                return f'<td{cls_str}{attr}><span class="dot-g">●</span></td>'
-            elif cur_price < last_price:
-                return f'<td{cls_str}{attr}><span class="dot-d">●</span></td>'
-            else:
-                return f'<td{cls_str}{attr}><span class="n">—</span></td>'
-        cls_str = f' class="{" ".join(classes)}"' if classes else ''
-        return f'<td{cls_str}{attr}><span class="n">—</span></td>'
-
+            if last_signal == "GOLDEN": classes.append("bg-g")
+            elif last_signal == "DEATH": classes.append("bg-d")
+            cs = f' class="{" ".join(classes)}"' if classes else ''
+            if cur_price > last_price: return f'<td{cs}{attr}><span class="dot-g">●</span></td>'
+            elif cur_price < last_price: return f'<td{cs}{attr}><span class="dot-d">●</span></td>'
+            else: return f'<td{cs}{attr}><span class="n">—</span></td>'
+        cs = f' class="{" ".join(classes)}"' if classes else ''
+        return f'<td{cs}{attr}><span class="n">—</span></td>'
 
 def fmt_price(price):
-    if price >= 1000:
-        return f"${price:,.0f}"
-    elif price >= 1:
-        return f"${price:,.2f}"
-    else:
-        return f"{price:.4f}"
-        
+    if price >= 1000: return f"${price:,.0f}"
+    elif price >= 1: return f"${price:,.2f}"
+    else: return f"{price:.4f}"
+
 def rsi_cell(val, iv_sep=False, iv=""):
     cls = "iv-sep " if iv_sep else ""
     attr = f' data-iv="{iv}" data-lbl="R"'
-    if val is None:
-        return f'<td class="{cls}rsi"{attr}><span class="n">—</span></td>'
-    if val >= 70:
-        return f'<td class="{cls}rsi rsi-hi"{attr}>{val:.0f}</td>'
-    elif val <= 30:
-        return f'<td class="{cls}rsi rsi-lo"{attr}>{val:.0f}</td>'
-    else:
-        return f'<td class="{cls}rsi"{attr}>{val:.0f}</td>'
+    if val is None: return f'<td class="{cls}rsi"{attr}><span class="n">—</span></td>'
+    if val >= 70: return f'<td class="{cls}rsi rsi-hi"{attr}>{val:.0f}</td>'
+    elif val <= 30: return f'<td class="{cls}rsi rsi-lo"{attr}>{val:.0f}</td>'
+    else: return f'<td class="{cls}rsi"{attr}>{val:.0f}</td>'
 
 def build_indicator_html(asset_name, all_events, display_keys, rsi_data):
-    """Build indicator with pre-computed timeline for animation."""
-    if not display_keys:
-        return "", ""
-
+    if not display_keys: return "", ""
     prices = [all_events[k]["price"] for k in display_keys]
     p_min, p_max = min(prices), max(prices)
-
-    # Build timeline frames: each = (price_pct, rsi_per_tf)
     frames = []
     for k in display_keys:
         price = all_events[k]["price"]
         p_pct = ((price - p_min) / (p_max - p_min) * 100) if p_max > p_min else 50
-        rsi_row = lookup_rsi(rsi_data, k[0], k[1]) if rsi_data else {}
-        rsi_vals = [rsi_row.get(iv) for iv in INTERVALS]
-        frames.append({
-            "ts": f"{k[0]} {k[1]}",
-            "price": round(p_pct, 1),
-            "priceVal": price,
-            "rsi": [round(v, 1) if v is not None else None for v in rsi_vals],
-        })
-
-    # Initial frame = last (current state)
+        rr = lookup_rsi(rsi_data, k[0], k[1]) if rsi_data else {}
+        frames.append({"ts": f"{k[0]} {k[1]}", "price": round(p_pct, 1), "priceVal": price,
+                        "rsi": [round(rr.get(iv), 1) if rr.get(iv) is not None else None for iv in INTERVALS]})
     cur = frames[-1]
-
-    def price_color(pct):
-        if pct < 33:   return "#ef4444"
-        if pct < 66:   return "#eab308"
+    def pc(p):
+        if p < 33: return "#ef4444"
+        if p < 66: return "#eab308"
         return "#22c55e"
-
-    def rsi_color(v):
+    def rc(v):
         if v is None: return "#888"
-        if v >= 70:   return "#ef4444"
-        if v <= 30:   return "#22c55e"
+        if v >= 70: return "#ef4444"
+        if v <= 30: return "#22c55e"
         return "#eab308"
-
-    rsi_bars = ""
+    rb = ""
     for idx, iv in enumerate(INTERVALS):
         v = cur["rsi"][idx]
         if v is None:
-            rsi_bars += f'<div class="rsi-bar"><div class="rsi-track"></div><div class="rsi-lbl">{iv}</div><div class="rsi-val" id="rsi-val-{asset_name}-{idx}">—</div></div>'
+            rb += f'<div class="rsi-bar"><div class="rsi-track"></div><div class="rsi-lbl">{iv}</div><div class="rsi-val" id="rsi-val-{asset_name}-{idx}">—</div></div>'
             continue
         pos = max(0, min(100, v))
-        mcolor = rsi_color(v)
-        rsi_bars += f"""<div class="rsi-bar">
-            <div class="rsi-track">
-              <div class="rsi-marker" id="rsi-mk-{asset_name}-{idx}" style="bottom:{pos}%;background:{mcolor};"></div>
-            </div>
-            <div class="rsi-lbl">{iv}</div>
-            <div class="rsi-val" id="rsi-val-{asset_name}-{idx}" style="background:{mcolor};">{int(v)}</div>
-          </div>"""
-
-    indicator_html = f"""
+        mc = rc(v)
+        rb += f'<div class="rsi-bar"><div class="rsi-track"><div class="rsi-marker" id="rsi-mk-{asset_name}-{idx}" style="bottom:{pos}%;background:{mc};"></div></div><div class="rsi-lbl">{iv}</div><div class="rsi-val" id="rsi-val-{asset_name}-{idx}" style="background:{mc};">{int(v)}</div></div>'
+    ih = f"""
     <div class="indicator-box" data-asset="{asset_name}">
-      <div class="ind-timeline">
-        <div class="ind-ts" id="ts-{asset_name}">{cur['ts']}</div>
-        <div class="ind-progress"><div class="ind-progress-fill" id="prog-{asset_name}"></div></div>
-      </div>
-      <div class="ind-price">
-        <div class="ind-price-label">Price</div>
-        <div class="ind-price-bar">
-          <span class="ind-min">{fmt_price(p_min)}</span>
-          <div class="ind-track">
-            <div class="ind-marker" id="price-mk-{asset_name}" style="left:{cur['price']:.0f}%;background:{price_color(cur['price'])};"></div>
-            <div class="ind-cur" id="price-cur-{asset_name}" style="left:{cur['price']:.0f}%;background:{price_color(cur['price'])};">{fmt_price(cur['priceVal'])}</div>
-          </div>
-          <span class="ind-max">{fmt_price(p_max)}</span>
-        </div>
-      </div>
-      <div class="ind-rsi">
-        <div class="ind-rsi-label">RSI</div>
-        <div class="ind-rsi-bars">{rsi_bars}</div>
-      </div>
-    </div>
-    """
-
-    # Timeline JSON for animation
-    import json as _json
-    timeline_json = _json.dumps(frames)
-    timeline_script = f'<script>window.timeline_{asset_name}={timeline_json};</script>'
-
-    return indicator_html, timeline_script
+      <div class="ind-timeline"><div class="ind-ts" id="ts-{asset_name}">{cur['ts']}</div><div class="ind-progress"><div class="ind-progress-fill" id="prog-{asset_name}"></div></div></div>
+      <div class="ind-price"><div class="ind-price-label">Price</div><div class="ind-price-bar"><span class="ind-min">{fmt_price(p_min)}</span><div class="ind-track"><div class="ind-marker" id="price-mk-{asset_name}" style="left:{cur['price']:.0f}%;background:{pc(cur['price'])};"></div><div class="ind-cur" id="price-cur-{asset_name}" style="left:{cur['price']:.0f}%;background:{pc(cur['price'])};">{fmt_price(cur['priceVal'])}</div></div><span class="ind-max">{fmt_price(p_max)}</span></div></div>
+      <div class="ind-rsi"><div class="ind-rsi-label">RSI</div><div class="ind-rsi-bars">{rb}</div></div>
+    </div>"""
+    import json as _j
+    return ih, f'<script>window.timeline_{asset_name}={_j.dumps(frames)};</script>'
 
 def build_heatmap_html(all_events, display_keys):
-    """Build SVG heatmap: 200 rows x 15 cols (5 tf x 3 EMA). Cell 5x2 px."""
-    if not display_keys:
-        return ""
-
-    CELL_W = 12
-    CELL_H = 2
-    GAP    = 1  # gap between timeframe groups
-    n_tf   = len(INTERVALS)
-    n_ema  = len(EMA_PAIRS)
-    cols   = n_tf * n_ema
-    rows   = len(display_keys)
-
-    width  = cols * CELL_W + (n_tf - 1) * GAP
-    height = rows * CELL_H
-
-    # Track state per (iv, lbl) across full history (for bg tint)
-    col_state = {}
-    all_sorted = sorted(all_events.keys())
-    pre_keys = [k for k in all_sorted if k not in display_keys]
-    for k in pre_keys:
+    if not display_keys: return ""
+    CW, CH, GAP = 12, 2, 1
+    nt, ne = len(INTERVALS), len(EMA_PAIRS)
+    rows = len(display_keys)
+    w = nt * ne * CW + (nt - 1) * GAP
+    h = rows * CH
+    cs = {}
+    al = sorted(all_events.keys())
+    for k in [k for k in al if k not in display_keys]:
         ev = all_events[k]
         for iv in INTERVALS:
-            for _, _, lbl in EMA_PAIRS:
-                c = ev["crosses"].get(iv, {}).get(lbl)
-                if c:
-                    col_state[(iv, lbl)] = c
-
+            for _, _, lb in EMA_PAIRS:
+                c = ev["crosses"].get(iv, {}).get(lb)
+                if c: cs[(iv, lb)] = c
     rects = ""
-    for r_idx, key in enumerate(display_keys):
+    for ri, key in enumerate(display_keys):
         ev = all_events[key]
-        y = r_idx * CELL_H
-        for iv_idx, iv in enumerate(INTERVALS):
-            iv_data = ev["crosses"].get(iv, {})
-            for lbl_idx, (_, _, lbl) in enumerate(EMA_PAIRS):
-                x = (iv_idx * n_ema + lbl_idx) * CELL_W + iv_idx * GAP
-                cross = iv_data.get(lbl)
-                if cross:
-                    col_state[(iv, lbl)] = cross
-                    fill = "#16a34a" if cross == "GOLDEN" else "#dc2626"
+        y = ri * CH
+        for ii, iv in enumerate(INTERVALS):
+            ivd = ev["crosses"].get(iv, {})
+            for li, (_, _, lb) in enumerate(EMA_PAIRS):
+                x = (ii * ne + li) * CW + ii * GAP
+                cr = ivd.get(lb)
+                if cr:
+                    cs[(iv, lb)] = cr
+                    fill = "#16a34a" if cr == "GOLDEN" else "#dc2626"
                 else:
-                    state_c = col_state.get((iv, lbl))
-                    if state_c == "GOLDEN":
-                        fill = "#dcfce7"
-                    elif state_c == "DEATH":
-                        fill = "#fee2e2"
-                    else:
-                        fill = "#f1efe8"
-                rects += f'<rect x="{x}" y="{y}" width="{CELL_W}" height="{CELL_H}" fill="{fill}"/>'
-
-    return f"""
-    <div class="heatmap-box">
-      <div class="heatmap-label">HEATMAP · {rows} rows</div>
-      <svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
-        {rects}
-      </svg>
-    </div>
-    """
+                    sc = cs.get((iv, lb))
+                    fill = "#dcfce7" if sc == "GOLDEN" else "#fee2e2" if sc == "DEATH" else "#f1efe8"
+                rects += f'<rect x="{x}" y="{y}" width="{CW}" height="{CH}" fill="{fill}"/>'
+    return f'<div class="heatmap-box"><div class="heatmap-label">HEATMAP · {rows} rows</div><svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">{rects}</svg></div>'
 
 def build_full_heatmap_html(asset_name, all_events, years=4):
-    """Build full-history heatmap for modal. Cell 8x1 px."""
-    CELL_W = 8
-    CELL_H = 1
-    GAP    = 1
-    n_tf   = len(INTERVALS)
-    n_ema  = len(EMA_PAIRS)
-    cols   = n_tf * n_ema
-
-    # Filter events within N years
+    CW, CH, GAP = 8, 1, 1
+    nt, ne = len(INTERVALS), len(EMA_PAIRS)
     cutoff = pd.Timestamp.now() - pd.Timedelta(days=365 * years)
-    all_sorted = sorted(all_events.keys())
-    display_keys = [k for k in all_sorted if pd.Timestamp(f"{k[0]} {k[1]}") >= cutoff]
-
-    if not display_keys:
-        return ""
-
-    rows = len(display_keys)
-    width  = cols * CELL_W + (n_tf - 1) * GAP
-    height = rows * CELL_H
-
-    # Track state across pre-cutoff events
-    col_state = {}
-    pre_keys = [k for k in all_sorted if k not in display_keys]
-    for k in pre_keys:
+    al = sorted(all_events.keys())
+    dk = [k for k in al if pd.Timestamp(f"{k[0]} {k[1]}") >= cutoff]
+    if not dk: return ""
+    rows = len(dk)
+    w = nt * ne * CW + (nt - 1) * GAP
+    h = rows * CH
+    cs = {}
+    for k in [k for k in al if k not in dk]:
         ev = all_events[k]
         for iv in INTERVALS:
-            for _, _, lbl in EMA_PAIRS:
-                c = ev["crosses"].get(iv, {}).get(lbl)
-                if c:
-                    col_state[(iv, lbl)] = c
-
+            for _, _, lb in EMA_PAIRS:
+                c = ev["crosses"].get(iv, {}).get(lb)
+                if c: cs[(iv, lb)] = c
     rects = ""
-    for r_idx, key in enumerate(display_keys):
+    for ri, key in enumerate(dk):
         ev = all_events[key]
-        y = r_idx * CELL_H
-        for iv_idx, iv in enumerate(INTERVALS):
-            iv_data = ev["crosses"].get(iv, {})
-            for lbl_idx, (_, _, lbl) in enumerate(EMA_PAIRS):
-                x = (iv_idx * n_ema + lbl_idx) * CELL_W + iv_idx * GAP
-                cross = iv_data.get(lbl)
-                if cross:
-                    col_state[(iv, lbl)] = cross
-                    fill = "#16a34a" if cross == "GOLDEN" else "#dc2626"
+        y = ri * CH
+        for ii, iv in enumerate(INTERVALS):
+            ivd = ev["crosses"].get(iv, {})
+            for li, (_, _, lb) in enumerate(EMA_PAIRS):
+                x = (ii * ne + li) * CW + ii * GAP
+                cr = ivd.get(lb)
+                if cr:
+                    cs[(iv, lb)] = cr
+                    fill = "#16a34a" if cr == "GOLDEN" else "#dc2626"
                 else:
-                    state_c = col_state.get((iv, lbl))
-                    if state_c == "GOLDEN":
-                        fill = "#dcfce7"
-                    elif state_c == "DEATH":
-                        fill = "#fee2e2"
-                    else:
-                        fill = "#f1efe8"
-                rects += f'<rect x="{x}" y="{y}" width="{CELL_W}" height="{CELL_H}" fill="{fill}"/>'
-
-    first_date = display_keys[0][0]
-    last_date  = display_keys[-1][0]
-
-    return f"""
-    <div class="modal-overlay" id="modal-{asset_name}" onclick="if(event.target===this)closeModal('{asset_name}')">
-      <div class="modal-content">
-        <div class="modal-header">
-          <div class="modal-title">{asset_name} · Full Heatmap · {rows} events · {first_date} → {last_date}</div>
-          <button class="modal-close" onclick="closeModal('{asset_name}')">×</button>
-        </div>
-        <div class="modal-body">
-          <svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
-            {rects}
-          </svg>
-        </div>
-      </div>
-    </div>
-    """
-    
-def build_table_html(asset_name, all_events, rsi_data=None):
-    n_ema       = len(EMA_PAIRS)
-    n_sub       = n_ema + 1   # S, M, L, R per interval
-    total_cols  = 2 + len(INTERVALS) * n_sub
-    all_sorted  = sorted(all_events.keys())
-    display_keys = all_sorted[-MAX_ROWS:]
-    
-    # Pre-scan ALL events to build col_state before display window
-    col_state = {}
-    col_price = {}
-    pre_keys = [k for k in all_sorted if k not in display_keys]
-    for (date_str, time_str) in pre_keys:
-        ev = all_events[(date_str, time_str)]
-        for iv in INTERVALS:
-            iv_data = ev["crosses"].get(iv, {})
-            for _, _, lbl in EMA_PAIRS:
-                cross = iv_data.get(lbl)
-                if cross:
-                    col_state[(iv, lbl)] = cross
-                    col_price[(iv, lbl)] = ev["price"]
-
-    # Latest event summary
-    indicator_html, timeline_script = build_indicator_html(asset_name, all_events, display_keys, rsi_data)
-    heatmap_html = build_heatmap_html(all_events, display_keys)
-    full_heatmap_html = build_full_heatmap_html(asset_name, all_events, years=4)
-    
-    summary_html = ""
-    if display_keys:
-        last_key  = display_keys[-1]
-        last_ev   = all_events[last_key]
-        last_date, last_time = last_key
-        chips = []
-        for iv in INTERVALS:
-            iv_data = last_ev["crosses"].get(iv, {})
-            for fast, slow, lbl in EMA_PAIRS:
-                cross = iv_data.get(lbl)
-                if cross:
-                    label_full = {"S": f"Short {fast}/{slow}", "M": f"Mid {fast}/{slow}", "L": f"Long {fast}/{slow}"}.get(lbl, lbl)
-                    cls  = "chip-g" if cross == "GOLDEN" else "chip-d"
-                    icon = "G" if cross == "GOLDEN" else "D"
-                    chips.append(f'<span class="chip {cls}"><span class="chip-badge">{icon}</span>{cross.capitalize()} · {iv} · {label_full}</span>')
-        if chips:
-            chips_str = "\n".join(chips)
-            summary_html = f"""
-            <div class="summary-box">
-              <span class="summary-label">Latest event &nbsp;·&nbsp; {last_date} {last_time} &nbsp;·&nbsp; {fmt_price(last_ev['price'])}</span>
-              <div class="summary-chips">{chips_str}</div>
-            </div>"""
-
-    # Header: By Interval (default)
-    h1  = '<tr class="hdr-iv hdr-r1">'
-    h1 += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
-    h1 += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
-    for iv in INTERVALS:
-        h1 += f'<th colspan="{n_sub}" class="iv-sep">{iv}</th>'
-    h1 += '</tr>'
-
-    h2 = '<tr class="hdr-iv hdr-r2">'
-    for idx, iv in enumerate(INTERVALS):
-        for j, (_, _, lbl) in enumerate(EMA_PAIRS):
-            cls = ' class="iv-sep"' if j == 0 and idx > 0 else ''
-            h2 += f'<th{cls} data-iv="{iv}" data-lbl="{lbl}">{lbl}</th>'
-        h2 += f'<th class="rsi-hdr" data-iv="{iv}" data-lbl="R">R</th>'
-    h2 += '</tr>'
-
-    # Header: By EMA (hidden)
-    h1b  = '<tr class="hdr-ema hdr-r1" style="display:none;">'
-    h1b += '<th rowspan="2" class="sticky s0 left th-fix">Time</th>'
-    h1b += '<th rowspan="2" class="sticky s1 left th-fix">Price</th>'
-    for _, _, lbl in EMA_PAIRS:
-        full = {"S":"Short","M":"Mid","L":"Long"}[lbl]
-        h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep">{full}</th>'
-    h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep rsi-hdr">RSI</th>'
-    h1b += '</tr>'
-
-    h2b = '<tr class="hdr-ema hdr-r2" style="display:none;">'
-    for j, (_, _, lbl) in enumerate(EMA_PAIRS):
-        for idx, iv in enumerate(INTERVALS):
-            cls = ' class="iv-sep"' if idx == 0 and j > 0 else ''
-            h2b += f'<th{cls} data-iv="{iv}" data-lbl="{lbl}">{iv}</th>'
-    for idx, iv in enumerate(INTERVALS):
-        cls = ' class="iv-sep"' if idx == 0 else ''
-        h2b += f'<th{cls} data-iv="{iv}" data-lbl="R">{iv}</th>'
-    h2b += '</tr>'
-
-    rows_html = ""
-    prev_date = None
-    for (date_str, time_str) in display_keys:
-        if prev_date != date_str:
-            rows_html += f'<tr class="day-sep"><td class="sticky s0 day-label">{date_str}</td><td colspan="{total_cols-1}"></td></tr>'
-        prev_date = date_str
-
-        ev   = all_events[(date_str, time_str)]
-        cur_price = ev["price"]
-        rsi_row = lookup_rsi(rsi_data, date_str, time_str) if rsi_data else {}
-        row  = '<tr class="data">'
-        row += f'<td class="sticky s0 left tm">{time_str}</td>'
-        row += f'<td class="sticky s1 left price">{fmt_price(cur_price)}</td>'
-        for iv_idx, iv in enumerate(INTERVALS):
-            iv_data = ev["crosses"].get(iv, {})
-            for j, (_, _, lbl) in enumerate(EMA_PAIRS):
-                first_in_group = (iv_idx > 0 and j == 0)
-                cross = iv_data.get(lbl)
-                col_key = (iv, lbl)
-                if cross:
-                    col_state[col_key] = cross
-                    col_price[col_key] = cur_price
-                row += cell_html(cross, first_in_group, col_state.get(col_key), col_price.get(col_key), cur_price, iv, lbl)
-            row += rsi_cell(rsi_row.get(iv), iv_sep=False, iv=iv)
-        row += '</tr>'
-        rows_html += row
-
-    if not rows_html:
-        rows_html = f'<tr><td colspan="{total_cols}" class="empty">No EMA cross events</td></tr>'
-
-    return f"""
-    {timeline_script}
-    <div class="asset-block">
-      <div class="asset-title">{asset_name}</div>
-      {summary_html}
-      <div class="ind-heatmap-wrap">
-        {indicator_html}
-        <div class="heatmap-row">
-          {heatmap_html}
-          <button class="heatmap-expand" onclick="openModal('{asset_name}')" title="View 4-year heatmap">⛶</button>
-        </div>
-      </div>
-      {full_heatmap_html}
-      <div class="table-scroll">
-        <table>
-          <thead>{h1}{h2}{h1b}{h2b}</thead>
-          <tbody>{rows_html}</tbody>
-        </table>
-      </div>
-    </div>
-    """
-
+                    sc = cs.get((iv, lb))
+                    fill = "#dcfce7" if sc == "GOLDEN" else "#fee2e2" if sc == "DEATH" else "#f1efe8"
+                rects += f'<rect x="{x}" y="{y}" width="{CW}" height="{CH}" fill="{fill}"/>'
+    fd, ld = dk[0][0], dk[-1][0]
+    return f"""<div class="modal-overlay" id="modal-{asset_name}" onclick="if(event.target===this)closeModal('{asset_name}')"><div class="modal-content"><div class="modal-header"><div class="modal-title">{asset_name} · Full Heatmap · {rows} events · {fd} → {ld}</div><button class="modal-close" onclick="closeModal('{asset_name}')">×</button></div><div class="modal-body"><svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">{rects}</svg></div></div></div>"""
 
 def build_state_map_html(all_assets_state):
-    """Build canvas state map: 5 TF tables x 3 EMA cols, with asset icons at RSI position."""
-    import json as _json
-    data_json = _json.dumps(all_assets_state)
-    return f"""
-    <div class="state-map-box">
-      <div class="state-map-label">STATE MAP</div>
-      <canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas>
-    </div>
-    <script>window._stateMapData={data_json};</script>
-    """
+    import json as _j
+    return f'<div class="state-map-box"><div class="state-map-label">STATE MAP</div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas></div><script>window._stateMapData={_j.dumps(all_assets_state)};</script>'
+
+def build_table_html(asset_name, all_events, rsi_data=None):
+    ne = len(EMA_PAIRS)
+    ns = ne + 1
+    tc = 2 + len(INTERVALS) * ns
+    al = sorted(all_events.keys())
+    dk = al[-MAX_ROWS:]
+    cs, cp = {}, {}
+    for k in [k for k in al if k not in dk]:
+        ev = all_events[k]
+        for iv in INTERVALS:
+            for _, _, lb in EMA_PAIRS:
+                c = ev["crosses"].get(iv, {}).get(lb)
+                if c: cs[(iv, lb)] = c; cp[(iv, lb)] = ev["price"]
+    ih, ts = build_indicator_html(asset_name, all_events, dk, rsi_data)
+    hm = build_heatmap_html(all_events, dk)
+    fh = build_full_heatmap_html(asset_name, all_events, years=4)
+    sh = ""
+    if dk:
+        lk = dk[-1]; le = all_events[lk]; ld, lt = lk
+        chips = []
+        for iv in INTERVALS:
+            ivd = le["crosses"].get(iv, {})
+            for f, s, lb in EMA_PAIRS:
+                cr = ivd.get(lb)
+                if cr:
+                    lf = {"S": f"Short {f}/{s}", "M": f"Mid {f}/{s}", "L": f"Long {f}/{s}"}.get(lb, lb)
+                    cl = "chip-g" if cr == "GOLDEN" else "chip-d"
+                    ic = "G" if cr == "GOLDEN" else "D"
+                    chips.append(f'<span class="chip {cl}"><span class="chip-badge">{ic}</span>{cr.capitalize()} · {iv} · {lf}</span>')
+        if chips:
+            sh = f'<div class="summary-box"><span class="summary-label">Latest event &nbsp;·&nbsp; {ld} {lt} &nbsp;·&nbsp; {fmt_price(le["price"])}</span><div class="summary-chips">{chr(10).join(chips)}</div></div>'
+    h1 = '<tr class="hdr-iv hdr-r1"><th rowspan="2" class="sticky s0 left th-fix">Time</th><th rowspan="2" class="sticky s1 left th-fix">Price</th>'
+    for iv in INTERVALS: h1 += f'<th colspan="{ns}" class="iv-sep">{iv}</th>'
+    h1 += '</tr>'
+    h2 = '<tr class="hdr-iv hdr-r2">'
+    for idx, iv in enumerate(INTERVALS):
+        for j, (_, _, lb) in enumerate(EMA_PAIRS):
+            c = ' class="iv-sep"' if j == 0 and idx > 0 else ''
+            h2 += f'<th{c} data-iv="{iv}" data-lbl="{lb}">{lb}</th>'
+        h2 += f'<th class="rsi-hdr" data-iv="{iv}" data-lbl="R">R</th>'
+    h2 += '</tr>'
+    h1b = '<tr class="hdr-ema hdr-r1" style="display:none;"><th rowspan="2" class="sticky s0 left th-fix">Time</th><th rowspan="2" class="sticky s1 left th-fix">Price</th>'
+    for _, _, lb in EMA_PAIRS:
+        fl = {"S":"Short","M":"Mid","L":"Long"}[lb]
+        h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep">{fl}</th>'
+    h1b += f'<th colspan="{len(INTERVALS)}" class="iv-sep rsi-hdr">RSI</th></tr>'
+    h2b = '<tr class="hdr-ema hdr-r2" style="display:none;">'
+    for j, (_, _, lb) in enumerate(EMA_PAIRS):
+        for idx, iv in enumerate(INTERVALS):
+            c = ' class="iv-sep"' if idx == 0 and j > 0 else ''
+            h2b += f'<th{c} data-iv="{iv}" data-lbl="{lb}">{iv}</th>'
+    for idx, iv in enumerate(INTERVALS):
+        c = ' class="iv-sep"' if idx == 0 else ''
+        h2b += f'<th{c} data-iv="{iv}" data-lbl="R">{iv}</th>'
+    h2b += '</tr>'
+    rh = ""
+    pd_ = None
+    for (ds, tm) in dk:
+        if pd_ != ds:
+            rh += f'<tr class="day-sep"><td class="sticky s0 day-label">{ds}</td><td colspan="{tc-1}"></td></tr>'
+        pd_ = ds
+        ev = all_events[(ds, tm)]
+        pr = ev["price"]
+        rr = lookup_rsi(rsi_data, ds, tm) if rsi_data else {}
+        row = f'<tr class="data"><td class="sticky s0 left tm">{tm}</td><td class="sticky s1 left price">{fmt_price(pr)}</td>'
+        for ii, iv in enumerate(INTERVALS):
+            ivd = ev["crosses"].get(iv, {})
+            for j, (_, _, lb) in enumerate(EMA_PAIRS):
+                fg = (ii > 0 and j == 0)
+                cr = ivd.get(lb)
+                ck = (iv, lb)
+                if cr: cs[ck] = cr; cp[ck] = pr
+                row += cell_html(cr, fg, cs.get(ck), cp.get(ck), pr, iv, lb)
+            row += rsi_cell(rr.get(iv), iv_sep=False, iv=iv)
+        row += '</tr>'
+        rh += row
+    if not rh: rh = f'<tr><td colspan="{tc}" class="empty">No EMA cross events</td></tr>'
+    return f"""{ts}
+    <div class="asset-block"><div class="asset-title">{asset_name}</div>{sh}
+      <div class="ind-heatmap-wrap">{ih}<div class="heatmap-row">{hm}<button class="heatmap-expand" onclick="openModal('{asset_name}')" title="View 4-year heatmap">⛶</button></div></div>{fh}
+      <div class="table-scroll"><table><thead>{h1}{h2}{h1b}{h2b}</thead><tbody>{rh}</tbody></table></div></div>"""
 
 def build_html(sections, state_map_html=""):
-    now       = datetime.now().strftime("%Y-%m-%d %H:%M")
-    body      = "\n".join(sections)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    body = "\n".join(sections)
     return f"""<!DOCTYPE html>
 <html lang="th" data-theme="light">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EMA Cross Report</title>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>EMA Cross Report</title>
 <style>
-  :root {{
-    --bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#111;--bg4:#161616;
-    --border:#2a2a2a;--border2:#333;
-    --text:#e8e0d0;--text2:#aaa;--text3:#666;--text4:#444;
-    --gold:#f5d06e;--blue:#60a5fa;
-    --g-bg:#0d3d22;--g-fg:#4ade80;
-    --d-bg:#3d0d0d;--d-fg:#f87171;
-    --price:#7dd3fc;--tog-bg:#2a2a2a;
-    --shadow:4px 0 8px rgba(0,0,0,.5);
-  }}
-  [data-theme="light"] {{
-    --bg:#f5f5f0;--bg2:#fff;--bg3:#efefea;--bg4:#f0f0eb;
-    --border:#ddd;--border2:#ccc;
-    --text:#1a1a1a;--text2:#444;--text3:#888;--text4:#bbb;
-    --gold:#92400e;--blue:#1d4ed8;
-    --g-bg:#dcfce7;--g-fg:#166534;
-    --d-bg:#fee2e2;--d-fg:#991b1b;
-    --price:#0369a1;--tog-bg:#e5e5e5;
-    --shadow:4px 0 6px rgba(0,0,0,.1);
-  }}
+  :root{{--bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#111;--bg4:#161616;--border:#2a2a2a;--border2:#333;--text:#e8e0d0;--text2:#aaa;--text3:#666;--text4:#444;--gold:#f5d06e;--blue:#60a5fa;--g-bg:#0d3d22;--g-fg:#4ade80;--d-bg:#3d0d0d;--d-fg:#f87171;--price:#7dd3fc;--tog-bg:#2a2a2a;--shadow:4px 0 8px rgba(0,0,0,.5);}}
+  [data-theme="light"]{{--bg:#f5f5f0;--bg2:#fff;--bg3:#efefea;--bg4:#f0f0eb;--border:#ddd;--border2:#ccc;--text:#1a1a1a;--text2:#444;--text3:#888;--text4:#bbb;--gold:#92400e;--blue:#1d4ed8;--g-bg:#dcfce7;--g-fg:#166534;--d-bg:#fee2e2;--d-fg:#991b1b;--price:#0369a1;--tog-bg:#e5e5e5;--shadow:4px 0 6px rgba(0,0,0,.1);}}
   *{{box-sizing:border-box;margin:0;padding:0;}}
   body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);padding:14px 10px;transition:background .2s,color .2s;}}
   .top-bar{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;}}
@@ -593,19 +336,23 @@ def build_html(sections, state_map_html=""):
   .leg{{display:flex;align-items:center;gap:4px;}}
   .lg{{background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
   .ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
-  .asset-header{{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;}}
-  .asset-header-left{{flex:1;min-width:0;}}
+  .state-map-box{{margin-bottom:14px;padding:8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
+  .state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
   .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
   .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
   .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
   .heatmap-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
-  .ind-price{{display:flex;align-items:center;gap:8px;padding-bottom:14px;}}
+  .ind-timeline{{display:flex;align-items:center;gap:8px;margin-bottom:2px;}}
+  .ind-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
+  .ind-progress{{flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}}
+  .ind-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
+  .ind-price{{display:flex;align-items:center;gap:8px;padding-top:14px;}}
   .ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
   .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
   .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
   .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
   .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;transition:left .3s,background .3s;}}
-  .ind-cur{{position:absolute;top:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
+  .ind-cur{{position:absolute;bottom:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
   .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
   .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
   .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
@@ -618,8 +365,7 @@ def build_html(sections, state_map_html=""):
   .summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
   .summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
   .chip{{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;}}
-  .chip-g{{background:var(--g-bg);color:var(--g-fg);}}
-  .chip-d{{background:var(--d-bg);color:var(--d-fg);}}
+  .chip-g{{background:var(--g-bg);color:var(--g-fg);}} .chip-d{{background:var(--d-bg);color:var(--d-fg);}}
   .chip-badge{{font-weight:700;font-size:11px;}}
   .asset-block{{margin-bottom:22px;}}
   .asset-title{{font-size:13px;font-weight:700;color:var(--gold);margin-bottom:6px;}}
@@ -631,12 +377,9 @@ def build_html(sections, state_map_html=""):
   thead th{{position:sticky;z-index:3;background:var(--bg3);}}
   thead .hdr-r1 th{{top:0;color:var(--blue);font-size:12px;padding-top:7px;padding-bottom:2px;border-bottom:none;}}
   thead .hdr-r2 th{{top:26px;color:var(--text3);font-size:11px;padding-top:1px;padding-bottom:5px;border-bottom:2px solid var(--border2);box-shadow:0 2px 4px rgba(0,0,0,.15);}}
-  th.iv-sep{{border-left:2px solid var(--border2);}}
-  td.iv-sep{{border-left:2px solid var(--border2);}}
-  .sticky{{position:sticky;z-index:2;background:var(--bg2);}}
-  thead .sticky{{z-index:5;background:var(--bg3);}}
-  .s0{{left:0;}} .s1{{left:52px;box-shadow:var(--shadow);}}
-  thead .s1{{box-shadow:var(--shadow);}}
+  th.iv-sep{{border-left:2px solid var(--border2);}} td.iv-sep{{border-left:2px solid var(--border2);}}
+  .sticky{{position:sticky;z-index:2;background:var(--bg2);}} thead .sticky{{z-index:5;background:var(--bg3);}}
+  .s0{{left:0;}} .s1{{left:52px;box-shadow:var(--shadow);}} thead .s1{{box-shadow:var(--shadow);}}
   tr.data:hover .sticky{{background:var(--bg4);}}
   td.tm{{color:var(--text2);}} td.price{{color:var(--price);min-width:72px;}}
   .th-fix{{color:var(--text3)!important;font-size:11px!important;}}
@@ -646,20 +389,14 @@ def build_html(sections, state_map_html=""):
   .g{{display:inline-block;background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:2px 5px;font-weight:700;font-size:11px;min-width:16px;}}
   .d{{display:inline-block;background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:2px 5px;font-weight:700;font-size:11px;min-width:16px;}}
   .n{{color:var(--border2);font-size:11px;font-weight:400;}}
-  .bg-g{{background:var(--g-bg);}}
-  .bg-d{{background:var(--d-bg);}}
-  .bg-g .n{{color:var(--g-fg);opacity:.4;}}
-  .bg-d .n{{color:var(--d-fg);opacity:.4;}}
-  .dot-g{{color:#22c55e;font-size:14px;font-weight:700;}}
-  .dot-d{{color:#ef4444;font-size:14px;font-weight:700;}}
+  .bg-g{{background:var(--g-bg);}} .bg-d{{background:var(--d-bg);}}
+  .bg-g .n{{color:var(--g-fg);opacity:.4;}} .bg-d .n{{color:var(--d-fg);opacity:.4;}}
+  .dot-g{{color:#22c55e;font-size:14px;font-weight:700;}} .dot-d{{color:#ef4444;font-size:14px;font-weight:700;}}
   .rsi{{font-size:11px;color:var(--text3);font-weight:700;}}
-  .rsi-hi{{background:var(--d-bg);color:var(--d-fg);}}
-  .rsi-lo{{background:var(--g-bg);color:var(--g-fg);}}
+  .rsi-hi{{background:var(--d-bg);color:var(--d-fg);}} .rsi-lo{{background:var(--g-bg);color:var(--g-fg);}}
   .rsi-hdr{{color:var(--gold)!important;}}
   .empty{{text-align:center;color:var(--text4);padding:14px;font-weight:400;}}
   .footer{{font-size:10px;color:var(--text4);text-align:center;margin-top:6px;}}
-  .state-map-box{{margin-bottom:14px;padding:8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
-  .state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
   .heatmap-row{{display:flex;align-items:flex-start;gap:6px;}}
   .heatmap-expand{{flex-shrink:0;width:28px;height:28px;border-radius:6px;background:var(--bg2);border:1.5px solid var(--border2);color:var(--text2);font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;}}
   .heatmap-expand:hover{{border-color:var(--gold);color:var(--gold);}}
@@ -671,526 +408,188 @@ def build_html(sections, state_map_html=""):
   .modal-close{{background:none;border:none;color:var(--text);font-size:24px;font-weight:700;cursor:pointer;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;}}
   .modal-close:hover{{background:var(--bg4);}}
   .modal-body{{overflow:auto;padding:12px;flex:1;}}
-  .ind-timeline{{display:flex;align-items:center;gap:8px;margin-bottom:2px;}}
-  .ind-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
-  .ind-progress{{flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}}
-  .ind-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
-</style>
-</head>
-<body>
-<div class="top-bar">
-  <div>
-    <p class="page-title">EMA Cross Report</p>
-    <p class="page-sub">max {MAX_ROWS} rows · Bangkok (ICT) · Updated: {now} · <span id="cd" style="color:var(--blue);font-weight:700;">--:--</span></p>
-  </div>
-  <div style="display:flex;gap:6px;">
-    <button class="toggle-btn" onclick="toggleGroup()">
-      <span id="gl">By Interval</span>
-    </button>
-    <button class="toggle-btn" onclick="toggleTheme()">
-      <span id="ti">🌙</span><span id="tl">Dark</span>
-    </button>
-  </div>
-</div>
-<div class="legend">
-  <div class="leg"><span class="lg">G</span> Golden (Buy)</div>
-  <div class="leg"><span class="ld">D</span> Death (Sell)</div>
-  <div class="leg" style="color:var(--text4);font-weight:400">S=12/26 M=20/50 L=50/200 R=RSI-14</div>
-</div>
+</style></head><body>
+<div class="top-bar"><div><p class="page-title">EMA Cross Report</p><p class="page-sub">max {MAX_ROWS} rows · Bangkok (ICT) · Updated: {now} · <span id="cd" style="color:var(--blue);font-weight:700;">--:--</span></p></div><div style="display:flex;gap:6px;"><button class="toggle-btn" onclick="toggleGroup()"><span id="gl">By Interval</span></button><button class="toggle-btn" onclick="toggleTheme()"><span id="ti">🌙</span><span id="tl">Dark</span></button></div></div>
+<div class="legend"><div class="leg"><span class="lg">G</span> Golden (Buy)</div><div class="leg"><span class="ld">D</span> Death (Sell)</div><div class="leg" style="color:var(--text4);font-weight:400">S=12/26 M=20/50 L=50/200 R=RSI-14</div></div>
 {state_map_html}
 {body}
 <p class="footer">Auto-generated every 15 min · GitHub Actions</p>
 <script>
-  let groupMode='iv';
-  const ivs=['15m','30m','1h','4h','1d'];
-  const lbls=['S','M','L','R'];
-  function openModal(name){{
-    const m=document.getElementById('modal-'+name);
-    if(m)m.classList.add('open');
-  }}
-  function closeModal(name){{
-    const m=document.getElementById('modal-'+name);
-    if(m)m.classList.remove('open');
-  }}
-  function toggleTheme(){{
-    const h=document.documentElement,dark=h.getAttribute('data-theme')==='dark';
-    h.setAttribute('data-theme',dark?'light':'dark');
-    document.getElementById('ti').textContent=dark?'🌙':'☀️';
-    document.getElementById('tl').textContent=dark?'Dark':'Light';
-  }}
-  function toggleGroup(){{
-    groupMode=groupMode==='iv'?'ema':'iv';
-    document.getElementById('gl').textContent=groupMode==='iv'?'By Interval':'By EMA';
-    document.querySelectorAll('.hdr-iv').forEach(r=>r.style.display=groupMode==='iv'?'':'none');
-    document.querySelectorAll('.hdr-ema').forEach(r=>r.style.display=groupMode==='ema'?'':'none');
-    let order=[];
-    if(groupMode==='ema'){{
-      lbls.forEach(l=>ivs.forEach(v=>order.push(v+'-'+l)));
-    }}else{{
-      ivs.forEach(v=>lbls.forEach(l=>order.push(v+'-'+l)));
-    }}
-    document.querySelectorAll('tr.data').forEach(row=>{{
-      const cells=Array.from(row.querySelectorAll('td[data-iv]'));
-      const map={{}};
-      cells.forEach(c=>map[c.dataset.iv+'-'+c.dataset.lbl]=c);
-      order.forEach((k,i)=>{{
-        const c=map[k];
-        if(c){{
-          c.classList.remove('iv-sep');
-          if(groupMode==='ema'&&i%5===0&&i>0)c.classList.add('iv-sep');
-          if(groupMode==='iv'&&i%4===0&&i>0)c.classList.add('iv-sep');
-          row.appendChild(c);
-        }}
-      }});
-    }});
-  }}
-  function priceColor(p){{
-    if(p<33)return'#ef4444';
-    if(p<66)return'#eab308';
-    return'#22c55e';
-  }}
-  function rsiColor(v){{
-    if(v==null)return'#888';
-    if(v>=70)return'#ef4444';
-    if(v<=30)return'#22c55e';
-    return'#eab308';
-  }}
-  function fmtPrice(p){{
-    if(p>=1000)return'$'+p.toLocaleString('en-US',{{maximumFractionDigits:0}});
-    if(p>=1)return'$'+p.toFixed(2);
-    return p.toFixed(4);
-  }}
-  function animateIndicator(asset){{
-    const tl=window['timeline_'+asset];
-    if(!tl||!tl.length)return;
-    const dur=8000;
-    const frameMs=dur/tl.length;
-    const pauseMs=2000;
-    let i=0;
-    let paused=false;
-    function step(){{
-      if(paused)return;
-      const f=tl[i];
-      const pmk=document.getElementById('price-mk-'+asset);
-      const pcur=document.getElementById('price-cur-'+asset);
-      if(pmk){{
-        const c=priceColor(f.price);
-        pmk.style.left=f.price+'%';
-        pmk.style.background=c;
-        if(pcur){{
-          pcur.style.left=f.price+'%';
-          pcur.style.background=c;
-          pcur.textContent=fmtPrice(f.priceVal);
-        }}
-      }}
-      for(let j=0;j<5;j++){{
-        const v=f.rsi[j];
-        const mk=document.getElementById('rsi-mk-'+asset+'-'+j);
-        const vl=document.getElementById('rsi-val-'+asset+'-'+j);
-        if(v==null){{
-          if(vl)vl.textContent='—';
-          continue;
-        }}
-        const c=rsiColor(v);
-        if(mk){{
-          mk.style.bottom=v+'%';
-          mk.style.background=c;
-        }}
-        if(vl){{
-          vl.textContent=Math.round(v);
-          vl.style.background=c;
-        }}
-      }}
-      const ts=document.getElementById('ts-'+asset);
-      if(ts)ts.textContent=f.ts;
-      const prog=document.getElementById('prog-'+asset);
-      if(prog)prog.style.width=((i+1)/tl.length*100)+'%';
-      if(i===tl.length-1){{
-        paused=true;
-        setTimeout(()=>{{i=0;paused=false;step();}},pauseMs);
-      }}else{{
-        i++;
-        setTimeout(step,frameMs);
-      }}
-    }}
-    step();
-  }}
-  window.addEventListener('DOMContentLoaded',()=>{{
-    document.querySelectorAll('table').forEach(tbl=>{{
-      tbl.querySelectorAll('tr').forEach(row=>{{
-        let off=0;
-        row.querySelectorAll('.sticky').forEach(cell=>{{
-          cell.style.left=off+'px';off+=cell.offsetWidth;
-        }});
-      }});
-    }});
-    function tick(){{
-      const now=new Date();
-      const m=now.getMinutes(),s=now.getSeconds();
-      const left=((14-(m%15))*60)+(60-s);
-      const mm=String(Math.floor(left/60)).padStart(2,'0');
-      const ss=String(left%60).padStart(2,'0');
-      document.getElementById('cd').textContent='Next: '+mm+':'+ss;
-      if(left<=0)location.reload();
-    }}
-    tick();setInterval(tick,1000);
-    ['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);
-  }});
-</script>
-</body></html>"""
+let groupMode='iv';const ivs=['15m','30m','1h','4h','1d'];const lbls=['S','M','L','R'];
+function openModal(n){{const m=document.getElementById('modal-'+n);if(m)m.classList.add('open');}}
+function closeModal(n){{const m=document.getElementById('modal-'+n);if(m)m.classList.remove('open');}}
+function toggleTheme(){{const h=document.documentElement,d=h.getAttribute('data-theme')==='dark';h.setAttribute('data-theme',d?'light':'dark');document.getElementById('ti').textContent=d?'🌙':'☀️';document.getElementById('tl').textContent=d?'Dark':'Light';}}
+function toggleGroup(){{groupMode=groupMode==='iv'?'ema':'iv';document.getElementById('gl').textContent=groupMode==='iv'?'By Interval':'By EMA';document.querySelectorAll('.hdr-iv').forEach(r=>r.style.display=groupMode==='iv'?'':'none');document.querySelectorAll('.hdr-ema').forEach(r=>r.style.display=groupMode==='ema'?'':'none');let o=[];if(groupMode==='ema')lbls.forEach(l=>ivs.forEach(v=>o.push(v+'-'+l)));else ivs.forEach(v=>lbls.forEach(l=>o.push(v+'-'+l)));document.querySelectorAll('tr.data').forEach(row=>{{const cells=Array.from(row.querySelectorAll('td[data-iv]'));const map={{}};cells.forEach(c=>map[c.dataset.iv+'-'+c.dataset.lbl]=c);o.forEach((k,i)=>{{const c=map[k];if(c){{c.classList.remove('iv-sep');if(groupMode==='ema'&&i%5===0&&i>0)c.classList.add('iv-sep');if(groupMode==='iv'&&i%4===0&&i>0)c.classList.add('iv-sep');row.appendChild(c);}}}});}});}}
+function priceColor(p){{if(p<33)return'#ef4444';if(p<66)return'#eab308';return'#22c55e';}}
+function rsiColor(v){{if(v==null)return'#888';if(v>=70)return'#ef4444';if(v<=30)return'#22c55e';return'#eab308';}}
+function fmtPrice(p){{if(p>=1000)return'$'+p.toLocaleString('en-US',{{maximumFractionDigits:0}});if(p>=1)return'$'+p.toFixed(2);return p.toFixed(4);}}
+function animateIndicator(asset){{const tl=window['timeline_'+asset];if(!tl||!tl.length)return;const dur=8000,frameMs=dur/tl.length,pauseMs=2000;let i=0,paused=false;function step(){{if(paused)return;const f=tl[i];const pmk=document.getElementById('price-mk-'+asset),pcur=document.getElementById('price-cur-'+asset);if(pmk){{const c=priceColor(f.price);pmk.style.left=f.price+'%';pmk.style.background=c;if(pcur){{pcur.style.left=f.price+'%';pcur.style.background=c;pcur.textContent=fmtPrice(f.priceVal);}}}}for(let j=0;j<5;j++){{const v=f.rsi[j],mk=document.getElementById('rsi-mk-'+asset+'-'+j),vl=document.getElementById('rsi-val-'+asset+'-'+j);if(v==null){{if(vl)vl.textContent='—';continue;}}const c=rsiColor(v);if(mk){{mk.style.bottom=v+'%';mk.style.background=c;}}if(vl){{vl.textContent=Math.round(v);vl.style.background=c;}}}}const ts=document.getElementById('ts-'+asset);if(ts)ts.textContent=f.ts;const prog=document.getElementById('prog-'+asset);if(prog)prog.style.width=((i+1)/tl.length*100)+'%';if(i===tl.length-1){{paused=true;setTimeout(()=>{{i=0;paused=false;step();}},pauseMs);}}else{{i++;setTimeout(step,frameMs);}}}}step();}}
+function drawStateMap(){{const data=window._stateMapData;if(!data)return;const cv=document.getElementById('stateMap');if(!cv)return;const ctx=cv.getContext('2d');const tfs=['15m','30m','1h','4h','1d'],emas=['S','M','L'];const cW=28,gap=16,tW=3*cW,tH=240,tP=55,sX=14,GL='#dcfce7',RL='#fee2e2';function s2r(s,m,l){{let r=0;if(l==='D')r+=4;if(m==='D')r+=2;if(s==='D')r+=1;return r;}}function dGB(cx,cy,w,h){{const tw=w*0.6;ctx.beginPath();ctx.moveTo(cx-tw/2,cy-h/2);ctx.lineTo(cx+tw/2,cy-h/2);ctx.lineTo(cx+w/2,cy+h/2);ctx.lineTo(cx-w/2,cy+h/2);ctx.closePath();const g=ctx.createLinearGradient(cx-w/2,cy-h/2,cx+w/2,cy+h/2);g.addColorStop(0,'#fde68a');g.addColorStop(0.4,'#f59e0b');g.addColorStop(0.7,'#d97706');g.addColorStop(1,'#92400e');ctx.fillStyle=g;ctx.fill();ctx.strokeStyle='#78350f';ctx.lineWidth=0.8;ctx.stroke();}}for(let t=0;t<5;t++){{const tx=sX+t*(tW+gap),tf=tfs[t];ctx.font='700 11px sans-serif';ctx.fillStyle='#1d4ed8';ctx.textAlign='center';ctx.fillText(tf,tx+tW/2,16);ctx.font='500 9px sans-serif';ctx.fillStyle='#888';for(let i=0;i<3;i++)ctx.fillText(emas[i],tx+i*cW+cW/2,34);for(let col=0;col<3;col++){{const nR=Math.pow(2,3-col),cH=tH/nR,x=tx+col*cW;for(let r=0;r<nR;r++){{ctx.fillStyle=r%2===0?GL:RL;ctx.fillRect(x,tP+r*cH,cW,cH);}}ctx.strokeStyle='#ccc';ctx.lineWidth=0.5;for(let r=1;r<nR;r++){{ctx.beginPath();ctx.moveTo(x,tP+r*cH);ctx.lineTo(x+cW,tP+r*cH);ctx.stroke();}}}}ctx.strokeStyle='#ccc';ctx.lineWidth=0.5;for(let col=1;col<3;col++){{ctx.beginPath();ctx.moveTo(tx+col*cW,tP);ctx.lineTo(tx+col*cW,tP+tH);ctx.stroke();}}ctx.strokeStyle='#aaa';ctx.lineWidth=1;ctx.strokeRect(tx,tP,tW,tH);ctx.font='400 8px sans-serif';ctx.fillStyle='#aaa';ctx.textAlign='left';ctx.fillText('30',tx+2,tP+tH+12);ctx.textAlign='right';ctx.fillText('70',tx+tW-2,tP+tH+12);ctx.textAlign='center';ctx.fillText('RSI',tx+tW/2,tP+tH+12);const items=[['Gold','gold'],['Bitcoin','btc'],['XAUBTC','xb']];for(const[aN,aT]of items){{const d=data[aN];if(!d||!d[tf])continue;const s=d[tf],r8=s2r(s.S,s.M,s.L),cH8=tH/8,iy=tP+r8*cH8+cH8/2,rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;if(aT==='gold')dGB(ix,iy,14,9);else{{const clr=aT==='btc'?'#f7931a':'#6366f1',lbl=aT==='btc'?'₿':'X/B',fs=aT==='btc'?'700 8px sans-serif':'700 5px sans-serif';ctx.beginPath();ctx.arc(ix,iy,7,0,Math.PI*2);ctx.fillStyle=clr;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();ctx.strokeStyle='#333';ctx.lineWidth=0.5;ctx.stroke();ctx.font=fs;ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(lbl,ix,iy);}}}}const ly=tP+tH+28;let lx=sX+20;dGB(lx,ly,14,9);ctx.font='400 10px sans-serif';ctx.fillStyle='#666';ctx.textAlign='left';ctx.fillText('Gold',lx+12,ly+1);lx+=70;ctx.beginPath();ctx.arc(lx,ly,6,0,Math.PI*2);ctx.fillStyle='#f7931a';ctx.fill();ctx.font='700 7px sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('₿',lx,ly);ctx.font='400 10px sans-serif';ctx.fillStyle='#666';ctx.textAlign='left';ctx.fillText('Bitcoin',lx+10,ly+1);lx+=80;ctx.beginPath();ctx.arc(lx,ly,6,0,Math.PI*2);ctx.fillStyle='#6366f1';ctx.fill();ctx.font='700 5px sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.fillText('X/B',lx,ly);ctx.font='400 10px sans-serif';ctx.fillStyle='#666';ctx.textAlign='left';ctx.fillText('XAU/BTC',lx+10,ly+1);}}
+window.addEventListener('DOMContentLoaded',()=>{{document.querySelectorAll('table').forEach(tbl=>{{tbl.querySelectorAll('tr').forEach(row=>{{let off=0;row.querySelectorAll('.sticky').forEach(cell=>{{cell.style.left=off+'px';off+=cell.offsetWidth;}});}});}});function tick(){{const now=new Date(),m=now.getMinutes(),s=now.getSeconds(),left=((14-(m%15))*60)+(60-s),mm=String(Math.floor(left/60)).padStart(2,'0'),ss=String(left%60).padStart(2,'0');document.getElementById('cd').textContent='Next: '+mm+':'+ss;if(left<=0)location.reload();}}tick();setInterval(tick,1000);['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);drawStateMap();}});
+</script></body></html>"""
 
-
-def event_key(asset, date_str, time_str, interval, label, cross):
-    return f"{asset}|{date_str}|{time_str}|{interval}|{label}|{cross}"
-
+def event_key(asset, ds, tm, iv, lb, cr): return f"{asset}|{ds}|{tm}|{iv}|{lb}|{cr}"
 
 def send_email(subject, body_html):
-    if not GMAIL_PASSWORD:
-        print("  Email SKIP: GMAIL_APP_PASSWORD not set")
-        return False
+    if not GMAIL_PASSWORD: print("  Email SKIP: no password"); return False
     try:
-        msg = MIMEText(body_html, "html")
-        msg["Subject"] = subject
-        msg["From"]    = GMAIL_SENDER
-        msg["To"]      = ALERT_TO
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-            s.login(GMAIL_SENDER, GMAIL_PASSWORD)
-            s.sendmail(GMAIL_SENDER, ALERT_TO, msg.as_string())
+        msg = MIMEText(body_html, "html"); msg["Subject"] = subject; msg["From"] = GMAIL_SENDER; msg["To"] = ALERT_TO
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s: s.login(GMAIL_SENDER, GMAIL_PASSWORD); s.sendmail(GMAIL_SENDER, ALERT_TO, msg.as_string())
         return True
-    except Exception as e:
-        print(f"  Email ERROR: {e}")
-        return False
+    except Exception as e: print(f"  Email ERROR: {e}"); return False
 
-
-def build_email_body(new_events_list, now_str, folder_id="", asset_states=None):
-    # Group by asset
-    by_asset = {}
-    for ev in new_events_list:
-        by_asset.setdefault(ev["asset"], []).append(ev)
-
-    pages_link = "https://payotorn-droid.github.io/ema-cross-alert/"
-    link_html = f'<a href="{pages_link}" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>'
-
-    # State badges
-    state_html = ""
-    if asset_states:
-        badges = []
-        for a, s in asset_states.items():
-            badges.append(f'<span style="font-size:13px;font-weight:700;">{a}: {s}</span>')
-        state_html = '<div style="margin:8px 0;">' + ' &nbsp;|&nbsp; '.join(badges) + '</div>'
-
-    sections = ""
-    for asset, events in by_asset.items():
-        rows = ""
-        prev_date = ""
+def build_email_body(evts, now_str, fid="", ast=None):
+    ba = {}
+    for ev in evts: ba.setdefault(ev["asset"], []).append(ev)
+    lh = f'<a href="https://payotorn-droid.github.io/ema-cross-alert/" style="color:#1d4ed8;font-weight:700;font-size:14px;">Open Dashboard</a><br>'
+    sh = ""
+    if ast:
+        badges = [f'<span style="font-size:13px;font-weight:700;">{a}: {s}</span>' for a, s in ast.items()]
+        sh = '<div style="margin:8px 0;">' + ' &nbsp;|&nbsp; '.join(badges) + '</div>'
+    secs = ""
+    for asset, events in ba.items():
+        rows, pd_ = "", ""
         for ev in sorted(events, key=lambda e: (e["date"], e["time"])):
-            if ev["date"] != prev_date:
+            if ev["date"] != pd_:
                 rows += f'<tr><td colspan="4" style="padding:4px 4px 1px;font-size:10px;color:#888;border-top:1px solid #eee;">{ev["date"]}</td></tr>'
-                prev_date = ev["date"]
-            icon  = "🟢" if ev["cross"] == "GOLDEN" else "🔴"
-            color = "#166534" if ev["cross"] == "GOLDEN" else "#991b1b"
-            bg    = "#dcfce7" if ev["cross"] == "GOLDEN" else "#fee2e2"
-            rows += f"""<tr>
-              <td style="padding:3px 4px;font-size:12px;">{ev['time']}</td>
-              <td style="padding:3px 4px;font-size:12px;">{ev['interval']}·{ev['label']}</td>
-              <td style="padding:3px 4px;"><span style="background:{bg};color:{color};border-radius:3px;padding:1px 5px;font-weight:700;font-size:11px;">{icon}{ev['cross'][0]}</span></td>
-              <td style="padding:3px 4px;font-size:12px;text-align:right;">{fmt_price(ev['price'])}</td>
-            </tr>"""
-
-        sections += f"""
-        <div style="margin-bottom:12px;">
-          <div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px;">{asset} ({len(events)})</div>
-          <table style="width:100%;border-collapse:collapse;">
-            <tr style="color:#888;font-size:10px;">
-              <th style="text-align:left;padding:2px 4px;">Time</th>
-              <th style="text-align:left;padding:2px 4px;">Iv·EMA</th>
-              <th style="text-align:left;padding:2px 4px;">Sig</th>
-              <th style="text-align:right;padding:2px 4px;">Price</th>
-            </tr>
-            {rows}
-          </table>
-        </div>"""
-
-    return f"""<html><body style="font-family:Arial,sans-serif;margin:0;padding:8px;background:#f5f5f0;">
-  <div style="max-width:360px;margin:auto;background:#fff;border-radius:8px;border-left:4px solid #f5d06e;padding:12px;">
-    <div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:2px;">⚡ EMA Cross Alert</div>
-    <div style="font-size:11px;color:#888;margin-bottom:8px;">{now_str}</div>
-    {link_html}
-    {state_html}
-    {sections}
-    <div style="font-size:10px;color:#aaa;margin-top:8px;">Auto-generated · GitHub Actions</div>
-  </div>
-</body></html>"""
-
+                pd_ = ev["date"]
+            ic = "🟢" if ev["cross"] == "GOLDEN" else "🔴"
+            co = "#166534" if ev["cross"] == "GOLDEN" else "#991b1b"
+            bg = "#dcfce7" if ev["cross"] == "GOLDEN" else "#fee2e2"
+            rows += f'<tr><td style="padding:3px 4px;font-size:12px;">{ev["time"]}</td><td style="padding:3px 4px;font-size:12px;">{ev["interval"]}·{ev["label"]}</td><td style="padding:3px 4px;"><span style="background:{bg};color:{co};border-radius:3px;padding:1px 5px;font-weight:700;font-size:11px;">{ic}{ev["cross"][0]}</span></td><td style="padding:3px 4px;font-size:12px;text-align:right;">{fmt_price(ev["price"])}</td></tr>'
+        secs += f'<div style="margin-bottom:12px;"><div style="font-weight:700;color:#92400e;font-size:13px;margin-bottom:4px;">{asset} ({len(events)})</div><table style="width:100%;border-collapse:collapse;"><tr style="color:#888;font-size:10px;"><th style="text-align:left;padding:2px 4px;">Time</th><th style="text-align:left;padding:2px 4px;">Iv·EMA</th><th style="text-align:left;padding:2px 4px;">Sig</th><th style="text-align:right;padding:2px 4px;">Price</th></tr>{rows}</table></div>'
+    return f'<html><body style="font-family:Arial,sans-serif;margin:0;padding:8px;background:#f5f5f0;"><div style="max-width:360px;margin:auto;background:#fff;border-radius:8px;border-left:4px solid #f5d06e;padding:12px;"><div style="font-size:14px;font-weight:700;color:#92400e;margin-bottom:2px;">⚡ EMA Cross Alert</div><div style="font-size:11px;color:#888;margin-bottom:8px;">{now_str}</div>{lh}{sh}{secs}<div style="font-size:10px;color:#aaa;margin-top:8px;">Auto-generated · GitHub Actions</div></div></body></html>'
 
 def upload_to_drive(filepath, folder_id):
-    """Upload HTML file to Google Drive using Service Account."""
     sa_key = os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY")
-    if not sa_key:
-        print("  Drive SKIP: GOOGLE_SERVICE_ACCOUNT_KEY not set")
-        return False
+    if not sa_key: print("  Drive SKIP"); return False
     try:
-        from google.oauth2 import service_account
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
-
-        creds = service_account.Credentials.from_service_account_info(
-            json.loads(sa_key),
-            scopes=["https://www.googleapis.com/auth/drive"]
-        )
-        service = build("drive", "v3", credentials=creds)
-        filename = os.path.basename(filepath)
-
-        # Check if file already exists in folder
-        results = service.files().list(
-            q=f"name='{filename}' and '{folder_id}' in parents and trashed=false",
-            fields="files(id)"
-        ).execute()
-        existing = results.get("files", [])
-
-        media = MediaFileUpload(filepath, mimetype="text/html")
-        if existing:
-            service.files().update(
-                fileId=existing[0]["id"],
-                media_body=media
-            ).execute()
-            print(f"  Drive updated: {filename}")
-        else:
-            file_metadata = {"name": filename, "parents": [folder_id]}
-            service.files().create(
-                body=file_metadata,
-                media_body=media
-            ).execute()
-            print(f"  Drive created: {filename}")
+        from google.oauth2 import service_account; from googleapiclient.discovery import build; from googleapiclient.http import MediaFileUpload
+        creds = service_account.Credentials.from_service_account_info(json.loads(sa_key), scopes=["https://www.googleapis.com/auth/drive"])
+        svc = build("drive", "v3", credentials=creds); fn = os.path.basename(filepath)
+        res = svc.files().list(q=f"name='{fn}' and '{folder_id}' in parents and trashed=false", fields="files(id)").execute()
+        ex = res.get("files", []); media = MediaFileUpload(filepath, mimetype="text/html")
+        if ex: svc.files().update(fileId=ex[0]["id"], media_body=media).execute(); print(f"  Drive updated: {fn}")
+        else: svc.files().create(body={"name": fn, "parents": [folder_id]}, media_body=media).execute(); print(f"  Drive created: {fn}")
         return True
-    except Exception as e:
-        print(f"  Drive ERROR: {e}")
-        return False
-
-
-# Label mapping
-LABEL_FULL = {"S": "Short 12/26", "M": "Mid 20/50", "L": "Long 50/200"}
-
+    except Exception as e: print(f"  Drive ERROR: {e}"); return False
 
 def analyze_market_state(all_events, rsi_data=None):
-    """Analyze all EMA crosses to classify market state for email subject."""
-    cs = {}
-    all_sorted = sorted(all_events.keys())
-    for (d, t) in all_sorted:
+    cs = {}; al = sorted(all_events.keys())
+    for (d, t) in al:
         ev = all_events[(d, t)]
         for iv in INTERVALS:
-            for _, _, lbl in EMA_PAIRS:
-                cross = ev["crosses"].get(iv, {}).get(lbl)
-                if cross:
-                    cs[(iv, lbl)] = cross
-
-    def sig(iv, lbl):
-        return cs.get((iv, lbl))
-
-    big   = [sig("1d","S"), sig("1d","M"), sig("1d","L"), sig("4h","S"), sig("4h","M"), sig("4h","L")]
-    mid   = [sig("1h","S"), sig("1h","M"), sig("1h","L")]
-    small = [sig("15m","S"), sig("15m","M"), sig("15m","L"), sig("30m","S"), sig("30m","M"), sig("30m","L")]
-
-    big_g   = sum(1 for s in big if s == "GOLDEN")
-    big_d   = sum(1 for s in big if s == "DEATH")
-    mid_g   = sum(1 for s in mid if s == "GOLDEN")
-    mid_d   = sum(1 for s in mid if s == "DEATH")
-    small_g = sum(1 for s in small if s == "GOLDEN")
-    small_d = sum(1 for s in small if s == "DEATH")
-
-    rsi_ctx = ""
-    if rsi_data:
-        latest_key = all_sorted[-1] if all_sorted else None
-        if latest_key:
-            rsi_row = lookup_rsi(rsi_data, latest_key[0], latest_key[1])
-            for iv in ["4h", "1d"]:
-                v = rsi_row.get(iv)
-                if v and v >= 70:
-                    rsi_ctx = f" RSI {iv}={int(v)}"
-                    break
-                elif v and v <= 30:
-                    rsi_ctx = f" RSI {iv}={int(v)}"
-                    break
-
-    if sig("1d", "L") == "DEATH":
-        latest_1d_l = None
-        for (d, t) in reversed(all_sorted):
-            if all_events[(d, t)]["crosses"].get("1d", {}).get("L") == "DEATH":
-                latest_1d_l = (d, t)
+            for _, _, lb in EMA_PAIRS:
+                cr = ev["crosses"].get(iv, {}).get(lb)
+                if cr: cs[(iv, lb)] = cr
+    def sig(iv, lb): return cs.get((iv, lb))
+    big = [sig("1d","S"),sig("1d","M"),sig("1d","L"),sig("4h","S"),sig("4h","M"),sig("4h","L")]
+    mid = [sig("1h","S"),sig("1h","M"),sig("1h","L")]
+    small = [sig("15m","S"),sig("15m","M"),sig("15m","L"),sig("30m","S"),sig("30m","M"),sig("30m","L")]
+    bg, bd = sum(1 for s in big if s=="GOLDEN"), sum(1 for s in big if s=="DEATH")
+    mg, md = sum(1 for s in mid if s=="GOLDEN"), sum(1 for s in mid if s=="DEATH")
+    sg, sd = sum(1 for s in small if s=="GOLDEN"), sum(1 for s in small if s=="DEATH")
+    rc = ""
+    if rsi_data and al:
+        lk = al[-1]; rr = lookup_rsi(rsi_data, lk[0], lk[1])
+        for iv in ["4h","1d"]:
+            v = rr.get(iv)
+            if v and (v >= 70 or v <= 30): rc = f" RSI {iv}={int(v)}"; break
+    if sig("1d","L")=="DEATH":
+        for (d,t) in reversed(al):
+            if all_events[(d,t)]["crosses"].get("1d",{}).get("L")=="DEATH":
+                if (d,t)==al[-1]: return f"🔴 1d Death Cross 50/200{rc}"
                 break
-        if latest_1d_l and latest_1d_l == all_sorted[-1]:
-            return f"🔴 1d Death Cross 50/200{rsi_ctx}"
-
-    if sig("1d", "L") == "GOLDEN":
-        latest_1d_l = None
-        for (d, t) in reversed(all_sorted):
-            if all_events[(d, t)]["crosses"].get("1d", {}).get("L") == "GOLDEN":
-                latest_1d_l = (d, t)
+    if sig("1d","L")=="GOLDEN":
+        for (d,t) in reversed(al):
+            if all_events[(d,t)]["crosses"].get("1d",{}).get("L")=="GOLDEN":
+                if (d,t)==al[-1]: return f"🟢 1d Golden Cross 50/200{rc}"
                 break
-        if latest_1d_l and latest_1d_l == all_sorted[-1]:
-            return f"🟢 1d Golden Cross 50/200{rsi_ctx}"
-
-    if big_g >= 5 and mid_g >= 2:
-        return f"🟢 Full Bull{rsi_ctx}"
-    if big_d >= 5 and mid_d >= 2:
-        return f"🔴 Full Bear{rsi_ctx}"
-    if big_g >= 4 and small_g >= 3:
-        return f"🟢 Bull Wave{rsi_ctx}"
-    if big_d >= 4 and small_d >= 3:
-        return f"🔴 Bear Wave{rsi_ctx}"
-    if small_g >= 4 and big_d >= 4:
-        return f"⚠️ Divergence: Short↑ Long↓{rsi_ctx}"
-    if small_d >= 4 and big_g >= 4:
-        return f"⚠️ Divergence: Short↓ Long↑{rsi_ctx}"
-    if big_g >= 3 and mid_d >= 2 and small_d >= 3:
-        return f"⚠️ Momentum Fading{rsi_ctx}"
-    if big_d >= 3 and mid_g >= 2 and small_g >= 3:
-        return f"⚠️ Recovering{rsi_ctx}"
-
-    total_g = big_g + mid_g + small_g
-    total_d = big_d + mid_d + small_d
-    if total_g > total_d:
-        return f"🟡 Lean Bull{rsi_ctx}"
-    elif total_d > total_g:
-        return f"🟡 Lean Bear{rsi_ctx}"
-    return f"🟡 Mixed{rsi_ctx}"
-
+    if bg>=5 and mg>=2: return f"🟢 Full Bull{rc}"
+    if bd>=5 and md>=2: return f"🔴 Full Bear{rc}"
+    if bg>=4 and sg>=3: return f"🟢 Bull Wave{rc}"
+    if bd>=4 and sd>=3: return f"🔴 Bear Wave{rc}"
+    if sg>=4 and bd>=4: return f"⚠️ Divergence: Short↑ Long↓{rc}"
+    if sd>=4 and bg>=4: return f"⚠️ Divergence: Short↓ Long↑{rc}"
+    if bg>=3 and md>=2 and sd>=3: return f"⚠️ Momentum Fading{rc}"
+    if bd>=3 and mg>=2 and sg>=3: return f"⚠️ Recovering{rc}"
+    tg, td = bg+mg+sg, bd+md+sd
+    if tg > td: return f"🟡 Lean Bull{rc}"
+    elif td > tg: return f"🟡 Lean Bear{rc}"
+    return f"🟡 Mixed{rc}"
 
 def find_last_4h_cross(all_events):
-    """Find timestamp of latest 4h interval cross event."""
-    last_ts = None
-    for (date_str, time_str), ev in all_events.items():
+    lt = None
+    for (d, t), ev in all_events.items():
         if "4h" in ev["crosses"]:
-            ts = pd.Timestamp(f"{date_str} {time_str}")
-            if last_ts is None or ts > last_ts:
-                last_ts = ts
-    return last_ts
-
-
-def find_last_1d_cross(all_events):
-    """Find timestamp of latest 1d interval cross event."""
-    last_ts = None
-    for (date_str, time_str), ev in all_events.items():
-        if "1d" in ev["crosses"]:
-            ts = pd.Timestamp(f"{date_str} {time_str}")
-            if last_ts is None or ts > last_ts:
-                last_ts = ts
-    return last_ts
+            ts = pd.Timestamp(f"{d} {t}")
+            if lt is None or ts > lt: lt = ts
+    return lt
 
 # ── Main ─────────────────────────────────────────────────────
 os.makedirs(DATA_DIR, exist_ok=True)
 state = load_state()
-now   = datetime.now()
+now = datetime.now()
 now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-
 print(f"[{now_str}] report.py starting...")
 
-# 1. Collect events from CSV
-sections      = []
-all_new_evs   = []
-asset_states  = {}
-
+sections, all_new_evs, asset_states = [], [], {}
 for asset_name in ASSETS:
     all_events = collect_events(asset_name)
-    rsi_data   = collect_rsi(asset_name)
+    rsi_data = collect_rsi(asset_name)
     sections.append(build_table_html(asset_name, all_events, rsi_data))
     asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
     print(f"  {asset_name}: {asset_states[asset_name]}")
-
-    # Find cutoff = last 4h cross
     last_4h = find_last_4h_cross(all_events)
-    email_cutoff_dt = last_4h if last_4h else now - timedelta(hours=4)
-    for (date_str, time_str), ev in all_events.items():
-        ts_event = pd.Timestamp(f"{date_str} {time_str}")
-        if ts_event < email_cutoff_dt:
-            continue
-        for interval, pairs in ev["crosses"].items():
-            for label, cross in pairs.items():
-                ek = event_key(asset_name, date_str, time_str, interval, label, cross)
-                ev_data = {
-                    "asset":      asset_name,
-                    "date":       date_str,
-                    "time":       time_str,
-                    "interval":   interval,
-                    "label":      label,
-                    "label_full": LABEL_FULL.get(label, label),
-                    "cross":      cross,
-                    "price":      ev["price"],
-                    "event_key":  ek,
-                }
-                all_new_evs.append(ev_data)
+    ecut = last_4h if last_4h else now - timedelta(hours=4)
+    for (ds, tm), ev in all_events.items():
+        if pd.Timestamp(f"{ds} {tm}") < ecut: continue
+        for iv, pairs in ev["crosses"].items():
+            for lb, cr in pairs.items():
+                ek = event_key(asset_name, ds, tm, iv, lb, cr)
+                all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
 
-# Build state map data
-all_assets_state = {}
-for asset_name in ASSETS:
-    all_events_a = collect_events(asset_name)
-    rsi_data_a   = collect_rsi(asset_name)
-    # Get latest EMA state per (iv, lbl)
+# Build state map
+asm = {}
+for an in ASSETS:
+    ae = collect_events(an); rd = collect_rsi(an)
     cs = {}
-    for (d, t) in sorted(all_events_a.keys()):
-        ev = all_events_a[(d, t)]
+    for (d, t) in sorted(ae.keys()):
         for iv in INTERVALS:
-            for _, _, lbl in EMA_PAIRS:
-                cross = ev["crosses"].get(iv, {}).get(lbl)
-                if cross:
-                    cs[(iv, lbl)] = "G" if cross == "GOLDEN" else "D"
-    # Get latest RSI per interval
-    all_sorted_a = sorted(all_events_a.keys())
-    last_key_a = all_sorted_a[-1] if all_sorted_a else None
-    rsi_row_a = lookup_rsi(rsi_data_a, last_key_a[0], last_key_a[1]) if last_key_a and rsi_data_a else {}
-
-    tf_data = {}
+            for _, _, lb in EMA_PAIRS:
+                cr = ae[(d, t)]["crosses"].get(iv, {}).get(lb)
+                if cr: cs[(iv, lb)] = "G" if cr == "GOLDEN" else "D"
+    als = sorted(ae.keys()); lk = als[-1] if als else None
+    rr = lookup_rsi(rd, lk[0], lk[1]) if lk and rd else {}
+    td = {}
     for iv in INTERVALS:
-        tf_data[iv] = {
-            "S": cs.get((iv, "S"), "G"),
-            "M": cs.get((iv, "M"), "G"),
-            "L": cs.get((iv, "L"), "G"),
-            "rsi": round(rsi_row_a.get(iv, 50), 0),
-        }
-    all_assets_state[asset_name] = tf_data
+        td[iv] = {"S": cs.get((iv, "S"), "G"), "M": cs.get((iv, "M"), "G"), "L": cs.get((iv, "L"), "G"), "rsi": round(rr.get(iv, 50), 0)}
+    asm[an] = td
+smh = build_state_map_html(asm)
 
-state_map_html = build_state_map_html(all_assets_state)
-
-# 2. Generate HTML
-html = build_html(sections, state_map_html)
-with open(OUTPUT_HTML, "w", encoding="utf-8") as f:
-    f.write(html)
+html = build_html(sections, smh)
+with open(OUTPUT_HTML, "w", encoding="utf-8") as f: f.write(html)
 print(f"  HTML saved: {OUTPUT_HTML}")
 
-# 3. Upload to Google Drive
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
-if DRIVE_FOLDER_ID:
-    upload_to_drive(OUTPUT_HTML, DRIVE_FOLDER_ID)
+if DRIVE_FOLDER_ID: upload_to_drive(OUTPUT_HTML, DRIVE_FOLDER_ID)
 
-# 4. Send email if new events + cooldown OK
-# Split: truly_new triggers email, all_new_evs shown in content
 truly_new = [e for e in all_new_evs if e["event_key"] not in state["sent_events"]]
-
 if truly_new:
-    last_email = state.get("last_email")
-    can_send   = True
-    if last_email:
-        elapsed = (now - datetime.fromisoformat(last_email)).total_seconds() / 60
-        if elapsed < MIN_EMAIL_GAP:
-            can_send = False
-            print(f"  Email cooldown: {MIN_EMAIL_GAP - int(elapsed)} min remaining")
-
+    can_send = True
+    if state.get("last_email"):
+        if (now - datetime.fromisoformat(state["last_email"])).total_seconds() / 60 < MIN_EMAIL_GAP:
+            can_send = False; print(f"  Email cooldown")
     if can_send:
-        state_parts = [f"{a}: {s}" for a, s in asset_states.items()]
-        subject = f"⚡ {' | '.join(state_parts)} — {len(truly_new)} new"
-        # Email body shows ALL events from 4h cutoff, not just new
-        body_html = build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID, asset_states)
-        if send_email(subject, body_html):
+        sp = [f"{a}: {s}" for a, s in asset_states.items()]
+        subj = f"⚡ {' | '.join(sp)} — {len(truly_new)} new"
+        if send_email(subj, build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID, asset_states)):
             state["last_email"] = now.isoformat()
             print(f"  Email sent: {len(truly_new)} new, {len(all_new_evs)} total shown")
-
-    # Mark only truly new as sent
-    for ev in truly_new:
-        state["sent_events"].append(ev["event_key"])
-
+    for ev in truly_new: state["sent_events"].append(ev["event_key"])
     state["sent_events"] = state["sent_events"][-2000:]
 else:
     print("  No new events.")
 
 save_state(state)
-print(f"[{datetime.now().strftime('%H:%M:%S')}] report.py done.\n")
+print(f"[{datetime.now().strftime('%H:%M:%S')}] report.py done.")
