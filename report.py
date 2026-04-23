@@ -7,16 +7,16 @@ from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings("ignore")
 
-BASE_DIR = os.path.dirname(__file__)
-DATA_DIR = os.path.join(BASE_DIR, "data")
-OUTPUT_HTML = os.path.join(DATA_DIR, "ema_cross_report.html")
-STATE_FILE = os.path.join(DATA_DIR, "report_state.json")
-GMAIL_SENDER = "payotorn@gmail.com"
+BASE_DIR      = os.path.dirname(__file__)
+DATA_DIR      = os.path.join(BASE_DIR, "data")
+OUTPUT_HTML   = os.path.join(DATA_DIR, "ema_cross_report.html")
+STATE_FILE    = os.path.join(DATA_DIR, "report_state.json")
+GMAIL_SENDER   = "payotorn@gmail.com"
 GMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
-ALERT_TO = "payotorn@gmail.com"
-MAX_ROWS = 200
-LOOKBACK_DAYS = 30
-MIN_EMAIL_GAP = 60
+ALERT_TO       = "payotorn@gmail.com"
+MAX_ROWS       = 200
+LOOKBACK_DAYS  = 30
+MIN_EMAIL_GAP  = 60
 ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC"}
 EMA_PAIRS = [(12, 26, "S"), (20, 50, "M"), (50, 200, "L")]
 INTERVALS = ["15m", "30m", "1h", "4h", "1d"]
@@ -132,7 +132,7 @@ def build_indicator_html(asset_name, all_events, display_keys, rsi_data):
         p_pct = ((price - p_min) / (p_max - p_min) * 100) if p_max > p_min else 50
         rr = lookup_rsi(rsi_data, k[0], k[1]) if rsi_data else {}
         frames.append({"ts": f"{k[0]} {k[1]}", "price": round(p_pct, 1), "priceVal": price,
-                       "rsi": [round(rr.get(iv), 1) if rr.get(iv) is not None else None for iv in INTERVALS]})
+                        "rsi": [round(rr.get(iv), 1) if rr.get(iv) is not None else None for iv in INTERVALS]})
     cur = frames[-1]
     def pc(p):
         if p < 33: return "#ef4444"
@@ -153,11 +153,11 @@ def build_indicator_html(asset_name, all_events, display_keys, rsi_data):
         mc = rc(v)
         rb += f'<div class="rsi-bar"><div class="rsi-track"><div class="rsi-marker" id="rsi-mk-{asset_name}-{idx}" style="bottom:{pos}%;background:{mc};"></div></div><div class="rsi-lbl">{iv}</div><div class="rsi-val" id="rsi-val-{asset_name}-{idx}" style="background:{mc};">{int(v)}</div></div>'
     ih = f"""
-<div class="indicator-box" data-asset="{asset_name}">
-  <div class="ind-timeline"><div class="ind-ts" id="ts-{asset_name}">{cur['ts']}</div><div class="ind-progress"><div class="ind-progress-fill" id="prog-{asset_name}"></div></div></div>
-  <div class="ind-price"><div class="ind-price-label">Price</div><div class="ind-price-bar"><span class="ind-min">{fmt_price(p_min)}</span><div class="ind-track"><div class="ind-marker" id="price-mk-{asset_name}" style="left:{cur['price']:.0f}%;background:{pc(cur['price'])};"></div><div class="ind-cur" id="price-cur-{asset_name}" style="left:{cur['price']:.0f}%;background:{pc(cur['price'])};">{fmt_price(cur['priceVal'])}</div></div><span class="ind-max">{fmt_price(p_max)}</span></div></div>
-  <div class="ind-rsi"><div class="ind-rsi-label">RSI</div><div class="ind-rsi-bars">{rb}</div></div>
-</div>"""
+    <div class="indicator-box" data-asset="{asset_name}">
+      <div class="ind-timeline"><div class="ind-ts" id="ts-{asset_name}">{cur['ts']}</div><div class="ind-progress"><div class="ind-progress-fill" id="prog-{asset_name}"></div></div></div>
+      <div class="ind-price"><div class="ind-price-label">Price</div><div class="ind-price-bar"><span class="ind-min">{fmt_price(p_min)}</span><div class="ind-track"><div class="ind-marker" id="price-mk-{asset_name}" style="left:{cur['price']:.0f}%;background:{pc(cur['price'])};"></div><div class="ind-cur" id="price-cur-{asset_name}" style="left:{cur['price']:.0f}%;background:{pc(cur['price'])};">{fmt_price(cur['priceVal'])}</div></div><span class="ind-max">{fmt_price(p_max)}</span></div></div>
+      <div class="ind-rsi"><div class="ind-rsi-label">RSI</div><div class="ind-rsi-bars">{rb}</div></div>
+    </div>"""
     import json as _j
     return ih, f'<script>window.timeline_{asset_name}={_j.dumps(frames)};</script>'
 
@@ -294,7 +294,7 @@ def build_table_html(asset_name, all_events, rsi_data=None):
     for (ds, tm) in dk:
         if pd_ != ds:
             rh += f'<tr class="day-sep"><td class="sticky s0 day-label">{ds}</td><td colspan="{tc-1}"></td></tr>'
-            pd_ = ds
+        pd_ = ds
         ev = all_events[(ds, tm)]
         pr = ev["price"]
         rr = lookup_rsi(rsi_data, ds, tm) if rsi_data else {}
@@ -312,269 +312,9 @@ def build_table_html(asset_name, all_events, rsi_data=None):
         rh += row
     if not rh: rh = f'<tr><td colspan="{tc}" class="empty">No EMA cross events</td></tr>'
     return f"""{ts}
-<div class="asset-block"><div class="asset-title">{asset_name}</div>{sh}
-<div class="ind-heatmap-wrap">{ih}<div class="heatmap-row">{hm}<button class="heatmap-expand" onclick="openModal('{asset_name}')" title="View 4-year heatmap">⛶</button></div></div>{fh}
-<div class="table-scroll"><table><thead>{h1}{h2}{h1b}{h2b}</thead><tbody>{rh}</tbody></table></div></div>"""
-
-# ──────────────────────────────────────────────────────────────
-# JS block — kept as a raw string (NOT an f-string) so we don't
-# need to escape { and } as {{ }}. Easy to edit, no brace traps.
-# If you need to inject dynamic values, concatenate or .format()
-# this string. Current JS is fully static.
-# ──────────────────────────────────────────────────────────────
-JS_BLOCK = r"""
-let groupMode='iv';
-const ivs=['15m','30m','1h','4h','1d'];
-const lbls=['S','M','L','R'];
-
-function openModal(n){const m=document.getElementById('modal-'+n);if(m)m.classList.add('open');}
-function closeModal(n){const m=document.getElementById('modal-'+n);if(m)m.classList.remove('open');}
-
-function toggleTheme(){
-  const h=document.documentElement,d=h.getAttribute('data-theme')==='dark';
-  h.setAttribute('data-theme',d?'light':'dark');
-  document.getElementById('ti').textContent=d?'🌙':'☀️';
-  document.getElementById('tl').textContent=d?'Dark':'Light';
-}
-
-function toggleGroup(){
-  groupMode=groupMode==='iv'?'ema':'iv';
-  document.getElementById('gl').textContent=groupMode==='iv'?'By Interval':'By EMA';
-  document.querySelectorAll('.hdr-iv').forEach(r=>r.style.display=groupMode==='iv'?'':'none');
-  document.querySelectorAll('.hdr-ema').forEach(r=>r.style.display=groupMode==='ema'?'':'none');
-  let o=[];
-  if(groupMode==='ema')lbls.forEach(l=>ivs.forEach(v=>o.push(v+'-'+l)));
-  else ivs.forEach(v=>lbls.forEach(l=>o.push(v+'-'+l)));
-  document.querySelectorAll('tr.data').forEach(row=>{
-    const cells=Array.from(row.querySelectorAll('td[data-iv]'));
-    const map={};
-    cells.forEach(c=>map[c.dataset.iv+'-'+c.dataset.lbl]=c);
-    o.forEach((k,i)=>{
-      const c=map[k];
-      if(c){
-        c.classList.remove('iv-sep');
-        if(groupMode==='ema'&&i%5===0&&i>0)c.classList.add('iv-sep');
-        if(groupMode==='iv'&&i%4===0&&i>0)c.classList.add('iv-sep');
-        row.appendChild(c);
-      }
-    });
-  });
-}
-
-function priceColor(p){if(p<33)return'#ef4444';if(p<66)return'#eab308';return'#22c55e';}
-function rsiColor(v){if(v==null)return'#888';if(v>=70)return'#ef4444';if(v<=30)return'#22c55e';return'#eab308';}
-function fmtPrice(p){if(p>=1000)return'$'+p.toLocaleString('en-US',{maximumFractionDigits:0});if(p>=1)return'$'+p.toFixed(2);return p.toFixed(4);}
-
-function animateIndicator(asset){
-  const tl=window['timeline_'+asset];
-  if(!tl||!tl.length)return;
-  const dur=8000,frameMs=dur/tl.length,pauseMs=2000;
-  let i=0,paused=false;
-  function step(){
-    if(paused)return;
-    const f=tl[i];
-    const pmk=document.getElementById('price-mk-'+asset),pcur=document.getElementById('price-cur-'+asset);
-    if(pmk){
-      const c=priceColor(f.price);
-      pmk.style.left=f.price+'%';
-      pmk.style.background=c;
-      if(pcur){
-        pcur.style.left=f.price+'%';
-        pcur.style.background=c;
-        pcur.textContent=fmtPrice(f.priceVal);
-      }
-    }
-    for(let j=0;j<5;j++){
-      const v=f.rsi[j],mk=document.getElementById('rsi-mk-'+asset+'-'+j),vl=document.getElementById('rsi-val-'+asset+'-'+j);
-      if(v==null){if(vl)vl.textContent='—';continue;}
-      const c=rsiColor(v);
-      if(mk){mk.style.bottom=v+'%';mk.style.background=c;}
-      if(vl){vl.textContent=Math.round(v);vl.style.background=c;}
-    }
-    const ts=document.getElementById('ts-'+asset);
-    if(ts)ts.textContent=f.ts;
-    const prog=document.getElementById('prog-'+asset);
-    if(prog)prog.style.width=((i+1)/tl.length*100)+'%';
-    if(i===tl.length-1){
-      paused=true;
-      setTimeout(()=>{i=0;paused=false;step();},pauseMs);
-    }else{
-      i++;
-      setTimeout(step,frameMs);
-    }
-  }
-  step();
-}
-
-function drawStateMap(){
-  const data=window._stateMapData;
-  if(!data)return;
-  const cv=document.getElementById('stateMap');
-  if(!cv)return;
-  const ctx=cv.getContext('2d');
-  ctx.clearRect(0,0,cv.width,cv.height);
-  const tfs=['15m','30m','1h','4h','1d'],emas=['S','M','L'];
-  const cW=28,gap=16,tW=3*cW,tH=240,tP=55,sX=14,GL='#dcfce7',RL='#fee2e2';
-
-  function s2r(s,m,l){
-    let r=0;
-    if(l==='D')r+=4;
-    if(m==='D')r+=2;
-    if(s==='D')r+=1;
-    return r;
-  }
-
-  function dGB(cx,cy,w,h){
-    const tw=w*0.6;
-    ctx.beginPath();
-    ctx.moveTo(cx-tw/2,cy-h/2);
-    ctx.lineTo(cx+tw/2,cy-h/2);
-    ctx.lineTo(cx+w/2,cy+h/2);
-    ctx.lineTo(cx-w/2,cy+h/2);
-    ctx.closePath();
-    const g=ctx.createLinearGradient(cx-w/2,cy-h/2,cx+w/2,cy+h/2);
-    g.addColorStop(0,'#fde68a');
-    g.addColorStop(0.4,'#f59e0b');
-    g.addColorStop(0.7,'#d97706');
-    g.addColorStop(1,'#92400e');
-    ctx.fillStyle=g;
-    ctx.fill();
-    ctx.strokeStyle='#78350f';
-    ctx.lineWidth=0.8;
-    ctx.stroke();
-  }
-
-  for(let t=0;t<5;t++){
-    const tx=sX+t*(tW+gap),tf=tfs[t];
-    ctx.font='700 11px sans-serif';
-    ctx.fillStyle='#1d4ed8';
-    ctx.textAlign='center';
-    ctx.fillText(tf,tx+tW/2,16);
-    ctx.font='500 9px sans-serif';
-    ctx.fillStyle='#888';
-    for(let i=0;i<3;i++)ctx.fillText(emas[i],tx+i*cW+cW/2,34);
-
-    for(let col=0;col<3;col++){
-      const nR=Math.pow(2,3-col),cH=tH/nR,x=tx+col*cW;
-      for(let r=0;r<nR;r++){
-        ctx.fillStyle=r%2===0?GL:RL;
-        ctx.fillRect(x,tP+r*cH,cW,cH);
-      }
-      ctx.strokeStyle='#ccc';
-      ctx.lineWidth=0.5;
-      for(let r=1;r<nR;r++){
-        ctx.beginPath();
-        ctx.moveTo(x,tP+r*cH);
-        ctx.lineTo(x+cW,tP+r*cH);
-        ctx.stroke();
-      }
-    }
-
-    ctx.strokeStyle='#ccc';
-    ctx.lineWidth=0.5;
-    for(let col=1;col<3;col++){
-      ctx.beginPath();
-      ctx.moveTo(tx+col*cW,tP);
-      ctx.lineTo(tx+col*cW,tP+tH);
-      ctx.stroke();
-    }
-    ctx.strokeStyle='#aaa';
-    ctx.lineWidth=1;
-    ctx.strokeRect(tx,tP,tW,tH);
-    ctx.font='400 8px sans-serif';
-    ctx.fillStyle='#aaa';
-    ctx.textAlign='left';
-    ctx.fillText('30',tx+2,tP+tH+12);
-    ctx.textAlign='right';
-    ctx.fillText('70',tx+tW-2,tP+tH+12);
-    ctx.textAlign='center';
-    ctx.fillText('RSI',tx+tW/2,tP+tH+12);
-
-    const items=[['Gold','gold'],['Bitcoin','btc'],['XAUBTC','xb']];
-    for(const[aN,aT] of items){
-      const d=data[aN];
-      if(!d||!d[tf])continue;
-      const s=d[tf],r8=s2r(s.S,s.M,s.L),cH8=tH/8,iy=tP+r8*cH8+cH8/2,rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;
-      if(aT==='gold')dGB(ix,iy,14,9);
-      else{
-        const clr=aT==='btc'?'#f7931a':'#6366f1',lbl=aT==='btc'?'₿':'X/B',fs=aT==='btc'?'700 8px sans-serif':'700 5px sans-serif';
-        ctx.beginPath();
-        ctx.arc(ix,iy,7,0,Math.PI*2);
-        ctx.fillStyle=clr;
-        ctx.fill();
-        ctx.strokeStyle='#fff';
-        ctx.lineWidth=1.5;
-        ctx.stroke();
-        ctx.strokeStyle='#333';
-        ctx.lineWidth=0.5;
-        ctx.stroke();
-        ctx.font=fs;
-        ctx.fillStyle='#fff';
-        ctx.textAlign='center';
-        ctx.textBaseline='middle';
-        ctx.fillText(lbl,ix,iy);
-      }
-    }
-  }
-
-  // Legend — drawn once, outside the timeframe loop.
-  const ly=tP+tH+28;
-  let lx=sX+20;
-  dGB(lx,ly,14,9);
-  ctx.font='400 10px sans-serif';
-  ctx.fillStyle='#666';
-  ctx.textAlign='left';
-  ctx.fillText('Gold',lx+12,ly+1);
-  lx+=70;
-  ctx.beginPath();
-  ctx.arc(lx,ly,6,0,Math.PI*2);
-  ctx.fillStyle='#f7931a';
-  ctx.fill();
-  ctx.font='700 7px sans-serif';
-  ctx.fillStyle='#fff';
-  ctx.textAlign='center';
-  ctx.textBaseline='middle';
-  ctx.fillText('₿',lx,ly);
-  ctx.font='400 10px sans-serif';
-  ctx.fillStyle='#666';
-  ctx.textAlign='left';
-  ctx.fillText('Bitcoin',lx+10,ly+1);
-  lx+=80;
-  ctx.beginPath();
-  ctx.arc(lx,ly,6,0,Math.PI*2);
-  ctx.fillStyle='#6366f1';
-  ctx.fill();
-  ctx.font='700 5px sans-serif';
-  ctx.fillStyle='#fff';
-  ctx.textAlign='center';
-  ctx.fillText('X/B',lx,ly);
-  ctx.font='400 10px sans-serif';
-  ctx.fillStyle='#666';
-  ctx.textAlign='left';
-  ctx.fillText('XAU/BTC',lx+10,ly+1);
-}
-
-window.addEventListener('DOMContentLoaded',()=>{
-  document.querySelectorAll('table').forEach(tbl=>{
-    tbl.querySelectorAll('tr').forEach(row=>{
-      let off=0;
-      row.querySelectorAll('.sticky').forEach(cell=>{
-        cell.style.left=off+'px';
-        off+=cell.offsetWidth;
-      });
-    });
-  });
-  function tick(){
-    const now=new Date(),m=now.getMinutes(),s=now.getSeconds(),left=((14-(m%15))*60)+(60-s),mm=String(Math.floor(left/60)).padStart(2,'0'),ss=String(left%60).padStart(2,'0');
-    document.getElementById('cd').textContent='Next: '+mm+':'+ss;
-    if(left<=0)location.reload();
-  }
-  tick();
-  setInterval(tick,1000);
-  ['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);
-  drawStateMap();
-});
-"""
+    <div class="asset-block"><div class="asset-title">{asset_name}</div>{sh}
+      <div class="ind-heatmap-wrap">{ih}<div class="heatmap-row">{hm}<button class="heatmap-expand" onclick="openModal('{asset_name}')" title="View 4-year heatmap">⛶</button></div></div>{fh}
+      <div class="table-scroll"><table><thead>{h1}{h2}{h1b}{h2b}</thead><tbody>{rh}</tbody></table></div></div>"""
 
 def build_html(sections, state_map_html=""):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -583,99 +323,110 @@ def build_html(sections, state_map_html=""):
 <html lang="th" data-theme="light">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>EMA Cross Report</title>
 <style>
-:root{{--bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#111;--bg4:#161616;--border:#2a2a2a;--border2:#333;--text:#e8e0d0;--text2:#aaa;--text3:#666;--text4:#444;--gold:#f5d06e;--blue:#60a5fa;--g-bg:#0d3d22;--g-fg:#4ade80;--d-bg:#3d0d0d;--d-fg:#f87171;--price:#7dd3fc;--tog-bg:#2a2a2a;--shadow:4px 0 8px rgba(0,0,0,.5);}}
-[data-theme="light"]{{--bg:#f5f5f0;--bg2:#fff;--bg3:#efefea;--bg4:#f0f0eb;--border:#ddd;--border2:#ccc;--text:#1a1a1a;--text2:#444;--text3:#888;--text4:#bbb;--gold:#92400e;--blue:#1d4ed8;--g-bg:#dcfce7;--g-fg:#166534;--d-bg:#fee2e2;--d-fg:#991b1b;--price:#0369a1;--tog-bg:#e5e5e5;--shadow:4px 0 6px rgba(0,0,0,.1);}}
-*{{box-sizing:border-box;margin:0;padding:0;}}
-body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);padding:14px 10px;transition:background .2s,color .2s;}}
-.top-bar{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;}}
-.page-title{{font-size:15px;font-weight:700;color:var(--gold);margin-bottom:2px;}}
-.page-sub{{font-size:11px;color:var(--text3);}}
-.toggle-btn{{flex-shrink:0;background:var(--tog-bg);border:1px solid var(--border2);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .2s;white-space:nowrap;}}
-.toggle-btn:hover{{border-color:var(--gold);color:var(--gold);}}
-.legend{{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:11px;color:var(--text3);}}
-.leg{{display:flex;align-items:center;gap:4px;}}
-.lg{{background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
-.ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
-.state-map-box{{margin-bottom:14px;padding:8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
-.state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
-.ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
-.indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
-.heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
-.heatmap-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
-.ind-timeline{{display:flex;align-items:center;gap:8px;margin-bottom:2px;}}
-.ind-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
-.ind-progress{{flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}}
-.ind-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
-.ind-price{{display:flex;align-items:center;gap:8px;padding-top:14px;}}
-.ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
-.ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
-.ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
-.ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
-.ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;transition:left .3s,background .3s;}}
-.ind-cur{{position:absolute;bottom:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
-.ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
-.ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
-.ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
-.rsi-bar{{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}}
-.rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
-.rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);transition:bottom .3s,background .3s;}}
-.rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
-.rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;transition:background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
-.summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
-.summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
-.summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
-.chip{{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;}}
-.chip-g{{background:var(--g-bg);color:var(--g-fg);}} .chip-d{{background:var(--d-bg);color:var(--d-fg);}}
-.chip-badge{{font-weight:700;font-size:11px;}}
-.asset-block{{margin-bottom:22px;}}
-.asset-title{{font-size:13px;font-weight:700;color:var(--gold);margin-bottom:6px;}}
-.table-scroll{{overflow-x:auto;overflow-y:auto;max-height:420px;border-radius:8px;border:1px solid var(--border);}}
-table{{border-collapse:collapse;font-size:12px;font-weight:700;font-family:'Segoe UI',Arial,sans-serif;background:var(--bg2);width:auto;}}
-th,td{{padding:4px 6px;text-align:center;white-space:nowrap;border-bottom:.5px solid var(--border);font-weight:700;}}
-th{{background:var(--bg3);color:var(--text3);font-size:11px;}}
-.left{{text-align:left!important;}}
-thead th{{position:sticky;z-index:3;background:var(--bg3);}}
-thead .hdr-r1 th{{top:0;color:var(--blue);font-size:12px;padding-top:7px;padding-bottom:2px;border-bottom:none;}}
-thead .hdr-r2 th{{top:26px;color:var(--text3);font-size:11px;padding-top:1px;padding-bottom:5px;border-bottom:2px solid var(--border2);box-shadow:0 2px 4px rgba(0,0,0,.15);}}
-th.iv-sep{{border-left:2px solid var(--border2);}} td.iv-sep{{border-left:2px solid var(--border2);}}
-.sticky{{position:sticky;z-index:2;background:var(--bg2);}} thead .sticky{{z-index:5;background:var(--bg3);}}
-.s0{{left:0;}} .s1{{left:52px;box-shadow:var(--shadow);}} thead .s1{{box-shadow:var(--shadow);}}
-tr.data:hover .sticky{{background:var(--bg4);}}
-td.tm{{color:var(--text2);}} td.price{{color:var(--price);min-width:72px;}}
-.th-fix{{color:var(--text3)!important;font-size:11px!important;}}
-tr.data:hover td{{background:var(--bg4);}}
-tr.day-sep td{{background:var(--bg4)!important;color:var(--gold);font-size:11px;text-align:left;padding:4px 8px;letter-spacing:.5px;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);font-weight:700;}}
-.day-label{{font-weight:700!important;color:var(--gold)!important;}}
-.g{{display:inline-block;background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:2px 5px;font-weight:700;font-size:11px;min-width:16px;}}
-.d{{display:inline-block;background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:2px 5px;font-weight:700;font-size:11px;min-width:16px;}}
-.n{{color:var(--border2);font-size:11px;font-weight:400;}}
-.bg-g{{background:var(--g-bg);}} .bg-d{{background:var(--d-bg);}}
-.bg-g .n{{color:var(--g-fg);opacity:.4;}} .bg-d .n{{color:var(--d-fg);opacity:.4;}}
-.dot-g{{color:#22c55e;font-size:14px;font-weight:700;}} .dot-d{{color:#ef4444;font-size:14px;font-weight:700;}}
-.rsi{{font-size:11px;color:var(--text3);font-weight:700;}}
-.rsi-hi{{background:var(--d-bg);color:var(--d-fg);}} .rsi-lo{{background:var(--g-bg);color:var(--g-fg);}}
-.rsi-hdr{{color:var(--gold)!important;}}
-.empty{{text-align:center;color:var(--text4);padding:14px;font-weight:400;}}
-.footer{{font-size:10px;color:var(--text4);text-align:center;margin-top:6px;}}
-.heatmap-row{{display:flex;align-items:flex-start;gap:6px;}}
-.heatmap-expand{{flex-shrink:0;width:28px;height:28px;border-radius:6px;background:var(--bg2);border:1.5px solid var(--border2);color:var(--text2);font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;}}
-.heatmap-expand:hover{{border-color:var(--gold);color:var(--gold);}}
-.modal-overlay{{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;padding:20px;}}
-.modal-overlay.open{{display:flex;}}
-.modal-content{{background:var(--bg2);border:1.5px solid var(--border2);border-radius:12px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}}
-.modal-header{{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:12px;}}
-.modal-title{{font-size:12px;font-weight:700;color:var(--gold);}}
-.modal-close{{background:none;border:none;color:var(--text);font-size:24px;font-weight:700;cursor:pointer;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;}}
-.modal-close:hover{{background:var(--bg4);}}
-.modal-body{{overflow:auto;padding:12px;flex:1;}}
+  :root{{--bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#111;--bg4:#161616;--border:#2a2a2a;--border2:#333;--text:#e8e0d0;--text2:#aaa;--text3:#666;--text4:#444;--gold:#f5d06e;--blue:#60a5fa;--g-bg:#0d3d22;--g-fg:#4ade80;--d-bg:#3d0d0d;--d-fg:#f87171;--price:#7dd3fc;--tog-bg:#2a2a2a;--shadow:4px 0 8px rgba(0,0,0,.5);}}
+  [data-theme="light"]{{--bg:#f5f5f0;--bg2:#fff;--bg3:#efefea;--bg4:#f0f0eb;--border:#ddd;--border2:#ccc;--text:#1a1a1a;--text2:#444;--text3:#888;--text4:#bbb;--gold:#92400e;--blue:#1d4ed8;--g-bg:#dcfce7;--g-fg:#166534;--d-bg:#fee2e2;--d-fg:#991b1b;--price:#0369a1;--tog-bg:#e5e5e5;--shadow:4px 0 6px rgba(0,0,0,.1);}}
+  *{{box-sizing:border-box;margin:0;padding:0;}}
+  body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);padding:14px 10px;transition:background .2s,color .2s;}}
+  .top-bar{{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px;}}
+  .page-title{{font-size:15px;font-weight:700;color:var(--gold);margin-bottom:2px;}}
+  .page-sub{{font-size:11px;color:var(--text3);}}
+  .toggle-btn{{flex-shrink:0;background:var(--tog-bg);border:1px solid var(--border2);border-radius:20px;padding:4px 12px;font-size:11px;font-weight:700;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;transition:all .2s;white-space:nowrap;}}
+  .toggle-btn:hover{{border-color:var(--gold);color:var(--gold);}}
+  .legend{{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;font-size:11px;color:var(--text3);}}
+  .leg{{display:flex;align-items:center;gap:4px;}}
+  .lg{{background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
+  .ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
+  .state-map-box{{margin-bottom:14px;padding:8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
+  .state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
+  .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
+  .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
+  .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
+  .heatmap-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
+  .ind-timeline{{display:flex;align-items:center;gap:8px;margin-bottom:2px;}}
+  .ind-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
+  .ind-progress{{flex:1;height:3px;background:var(--border);border-radius:2px;overflow:hidden;}}
+  .ind-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
+  .ind-price{{display:flex;align-items:center;gap:8px;padding-top:14px;}}
+  .ind-price-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;}}
+  .ind-price-bar{{flex:1;display:flex;align-items:center;gap:6px;}}
+  .ind-min,.ind-max{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
+  .ind-track{{flex:1;height:8px;border-radius:3px;background:linear-gradient(to right,#ef4444 0%,#eab308 50%,#22c55e 100%);position:relative;opacity:.35;}}
+  .ind-marker{{position:absolute;top:-3px;width:4px;height:14px;border-radius:2px;transform:translateX(-2px);border:1px solid var(--text);box-shadow:0 0 0 1.5px var(--bg2);z-index:2;transition:left .3s,background .3s;}}
+  .ind-cur{{position:absolute;bottom:14px;font-size:9px;font-weight:700;font-family:monospace;transform:translateX(-50%);white-space:nowrap;color:#fff!important;padding:2px 6px;border-radius:4px;transition:left .3s,background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
+  .ind-rsi{{display:flex;align-items:flex-start;gap:8px;}}
+  .ind-rsi-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;width:28px;padding-top:4px;}}
+  .ind-rsi-bars{{flex:1;display:flex;justify-content:space-between;gap:4px;}}
+  .rsi-bar{{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}}
+  .rsi-track{{width:7px;height:36px;border-radius:3px;background:linear-gradient(to top,#22c55e 0%,#eab308 50%,#ef4444 100%);position:relative;opacity:.35;}}
+  .rsi-marker{{position:absolute;left:-2px;width:10px;height:3px;border-radius:1px;border:1px solid var(--text);box-shadow:0 0 0 1px var(--bg2);transition:bottom .3s,background .3s;}}
+  .rsi-lbl{{font-size:8px;color:var(--text3);font-weight:700;}}
+  .rsi-val{{font-size:9px;font-weight:700;font-family:monospace;color:#fff!important;padding:2px 5px;border-radius:4px;min-width:18px;text-align:center;transition:background .3s;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;}}
+  .summary-box{{margin-bottom:8px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1px solid var(--border);}}
+  .summary-label{{font-size:11px;color:var(--text3);font-weight:600;display:block;margin-bottom:6px;}}
+  .summary-chips{{display:flex;flex-wrap:wrap;gap:6px;}}
+  .chip{{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px;}}
+  .chip-g{{background:var(--g-bg);color:var(--g-fg);}} .chip-d{{background:var(--d-bg);color:var(--d-fg);}}
+  .chip-badge{{font-weight:700;font-size:11px;}}
+  .asset-block{{margin-bottom:22px;}}
+  .asset-title{{font-size:13px;font-weight:700;color:var(--gold);margin-bottom:6px;}}
+  .table-scroll{{overflow-x:auto;overflow-y:auto;max-height:420px;border-radius:8px;border:1px solid var(--border);}}
+  table{{border-collapse:collapse;font-size:12px;font-weight:700;font-family:'Segoe UI',Arial,sans-serif;background:var(--bg2);width:auto;}}
+  th,td{{padding:4px 6px;text-align:center;white-space:nowrap;border-bottom:.5px solid var(--border);font-weight:700;}}
+  th{{background:var(--bg3);color:var(--text3);font-size:11px;}}
+  .left{{text-align:left!important;}}
+  thead th{{position:sticky;z-index:3;background:var(--bg3);}}
+  thead .hdr-r1 th{{top:0;color:var(--blue);font-size:12px;padding-top:7px;padding-bottom:2px;border-bottom:none;}}
+  thead .hdr-r2 th{{top:26px;color:var(--text3);font-size:11px;padding-top:1px;padding-bottom:5px;border-bottom:2px solid var(--border2);box-shadow:0 2px 4px rgba(0,0,0,.15);}}
+  th.iv-sep{{border-left:2px solid var(--border2);}} td.iv-sep{{border-left:2px solid var(--border2);}}
+  .sticky{{position:sticky;z-index:2;background:var(--bg2);}} thead .sticky{{z-index:5;background:var(--bg3);}}
+  .s0{{left:0;}} .s1{{left:52px;box-shadow:var(--shadow);}} thead .s1{{box-shadow:var(--shadow);}}
+  tr.data:hover .sticky{{background:var(--bg4);}}
+  td.tm{{color:var(--text2);}} td.price{{color:var(--price);min-width:72px;}}
+  .th-fix{{color:var(--text3)!important;font-size:11px!important;}}
+  tr.data:hover td{{background:var(--bg4);}}
+  tr.day-sep td{{background:var(--bg4)!important;color:var(--gold);font-size:11px;text-align:left;padding:4px 8px;letter-spacing:.5px;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);font-weight:700;}}
+  .day-label{{font-weight:700!important;color:var(--gold)!important;}}
+  .g{{display:inline-block;background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:2px 5px;font-weight:700;font-size:11px;min-width:16px;}}
+  .d{{display:inline-block;background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:2px 5px;font-weight:700;font-size:11px;min-width:16px;}}
+  .n{{color:var(--border2);font-size:11px;font-weight:400;}}
+  .bg-g{{background:var(--g-bg);}} .bg-d{{background:var(--d-bg);}}
+  .bg-g .n{{color:var(--g-fg);opacity:.4;}} .bg-d .n{{color:var(--d-fg);opacity:.4;}}
+  .dot-g{{color:#22c55e;font-size:14px;font-weight:700;}} .dot-d{{color:#ef4444;font-size:14px;font-weight:700;}}
+  .rsi{{font-size:11px;color:var(--text3);font-weight:700;}}
+  .rsi-hi{{background:var(--d-bg);color:var(--d-fg);}} .rsi-lo{{background:var(--g-bg);color:var(--g-fg);}}
+  .rsi-hdr{{color:var(--gold)!important;}}
+  .empty{{text-align:center;color:var(--text4);padding:14px;font-weight:400;}}
+  .footer{{font-size:10px;color:var(--text4);text-align:center;margin-top:6px;}}
+  .heatmap-row{{display:flex;align-items:flex-start;gap:6px;}}
+  .heatmap-expand{{flex-shrink:0;width:28px;height:28px;border-radius:6px;background:var(--bg2);border:1.5px solid var(--border2);color:var(--text2);font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;}}
+  .heatmap-expand:hover{{border-color:var(--gold);color:var(--gold);}}
+  .modal-overlay{{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;align-items:center;justify-content:center;padding:20px;}}
+  .modal-overlay.open{{display:flex;}}
+  .modal-content{{background:var(--bg2);border:1.5px solid var(--border2);border-radius:12px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;}}
+  .modal-header{{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);gap:12px;}}
+  .modal-title{{font-size:12px;font-weight:700;color:var(--gold);}}
+  .modal-close{{background:none;border:none;color:var(--text);font-size:24px;font-weight:700;cursor:pointer;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;}}
+  .modal-close:hover{{background:var(--bg4);}}
+  .modal-body{{overflow:auto;padding:12px;flex:1;}}
 </style></head><body>
 <div class="top-bar"><div><p class="page-title">EMA Cross Report</p><p class="page-sub">max {MAX_ROWS} rows · Bangkok (ICT) · Updated: {now} · <span id="cd" style="color:var(--blue);font-weight:700;">--:--</span></p></div><div style="display:flex;gap:6px;"><button class="toggle-btn" onclick="toggleGroup()"><span id="gl">By Interval</span></button><button class="toggle-btn" onclick="toggleTheme()"><span id="ti">🌙</span><span id="tl">Dark</span></button></div></div>
 <div class="legend"><div class="leg"><span class="lg">G</span> Golden (Buy)</div><div class="leg"><span class="ld">D</span> Death (Sell)</div><div class="leg" style="color:var(--text4);font-weight:400">S=12/26 M=20/50 L=50/200 R=RSI-14</div></div>
 {state_map_html}
 {body}
 <p class="footer">Auto-generated every 15 min · GitHub Actions</p>
-<script>{JS_BLOCK}</script>
-</body></html>"""
+<script>
+let groupMode='iv';const ivs=['15m','30m','1h','4h','1d'];const lbls=['S','M','L','R'];
+function openModal(n){{const m=document.getElementById('modal-'+n);if(m)m.classList.add('open');}}
+function closeModal(n){{const m=document.getElementById('modal-'+n);if(m)m.classList.remove('open');}}
+function toggleTheme(){{const h=document.documentElement,d=h.getAttribute('data-theme')==='dark';h.setAttribute('data-theme',d?'light':'dark');document.getElementById('ti').textContent=d?'🌙':'☀️';document.getElementById('tl').textContent=d?'Dark':'Light';}}
+function toggleGroup(){{groupMode=groupMode==='iv'?'ema':'iv';document.getElementById('gl').textContent=groupMode==='iv'?'By Interval':'By EMA';document.querySelectorAll('.hdr-iv').forEach(r=>r.style.display=groupMode==='iv'?'':'none');document.querySelectorAll('.hdr-ema').forEach(r=>r.style.display=groupMode==='ema'?'':'none');let o=[];if(groupMode==='ema')lbls.forEach(l=>ivs.forEach(v=>o.push(v+'-'+l)));else ivs.forEach(v=>lbls.forEach(l=>o.push(v+'-'+l)));document.querySelectorAll('tr.data').forEach(row=>{{const cells=Array.from(row.querySelectorAll('td[data-iv]'));const map={{}};cells.forEach(c=>map[c.dataset.iv+'-'+c.dataset.lbl]=c);o.forEach((k,i)=>{{const c=map[k];if(c){{c.classList.remove('iv-sep');if(groupMode==='ema'&&i%5===0&&i>0)c.classList.add('iv-sep');if(groupMode==='iv'&&i%4===0&&i>0)c.classList.add('iv-sep');row.appendChild(c);}}}});}});}}
+function priceColor(p){{if(p<33)return'#ef4444';if(p<66)return'#eab308';return'#22c55e';}}
+function rsiColor(v){{if(v==null)return'#888';if(v>=70)return'#ef4444';if(v<=30)return'#22c55e';return'#eab308';}}
+function fmtPrice(p){{if(p>=1000)return'$'+p.toLocaleString('en-US',{{maximumFractionDigits:0}});if(p>=1)return'$'+p.toFixed(2);return p.toFixed(4);}}
+function animateIndicator(asset){{const tl=window['timeline_'+asset];if(!tl||!tl.length)return;const dur=8000,frameMs=dur/tl.length,pauseMs=2000;let i=0,paused=false;function step(){{if(paused)return;const f=tl[i];const pmk=document.getElementById('price-mk-'+asset),pcur=document.getElementById('price-cur-'+asset);if(pmk){{const c=priceColor(f.price);pmk.style.left=f.price+'%';pmk.style.background=c;if(pcur){{pcur.style.left=f.price+'%';pcur.style.background=c;pcur.textContent=fmtPrice(f.priceVal);}}}}for(let j=0;j<5;j++){{const v=f.rsi[j],mk=document.getElementById('rsi-mk-'+asset+'-'+j),vl=document.getElementById('rsi-val-'+asset+'-'+j);if(v==null){{if(vl)vl.textContent='—';continue;}}const c=rsiColor(v);if(mk){{mk.style.bottom=v+'%';mk.style.background=c;}}if(vl){{vl.textContent=Math.round(v);vl.style.background=c;}}}}const ts=document.getElementById('ts-'+asset);if(ts)ts.textContent=f.ts;const prog=document.getElementById('prog-'+asset);if(prog)prog.style.width=((i+1)/tl.length*100)+'%';if(i===tl.length-1){{paused=true;setTimeout(()=>{{i=0;paused=false;step();}},pauseMs);}}else{{i++;setTimeout(step,frameMs);}}}}step();}}
+function drawStateMap(){{const data=window._stateMapData;if(!data)return;const cv=document.getElementById('stateMap');if(!cv)return;const ctx=cv.getContext('2d');const tfs=['15m','30m','1h','4h','1d'],emas=['S','M','L'];const cW=28,gap=16,tW=3*cW,tH=240,tP=55,sX=14,GL='#dcfce7',RL='#fee2e2';function s2r(s,m,l){{let r=0;if(l==='D')r+=4;if(m==='D')r+=2;if(s==='D')r+=1;return r;}}function dGB(cx,cy,w,h){{const tw=w*0.6;ctx.beginPath();ctx.moveTo(cx-tw/2,cy-h/2);ctx.lineTo(cx+tw/2,cy-h/2);ctx.lineTo(cx+w/2,cy+h/2);ctx.lineTo(cx-w/2,cy+h/2);ctx.closePath();const g=ctx.createLinearGradient(cx-w/2,cy-h/2,cx+w/2,cy+h/2);g.addColorStop(0,'#fde68a');g.addColorStop(0.4,'#f59e0b');g.addColorStop(0.7,'#d97706');g.addColorStop(1,'#92400e');ctx.fillStyle=g;ctx.fill();ctx.strokeStyle='#78350f';ctx.lineWidth=0.8;ctx.stroke();}}for(let t=0;t<5;t++){{const tx=sX+t*(tW+gap),tf=tfs[t];ctx.font='700 11px sans-serif';ctx.fillStyle='#1d4ed8';ctx.textAlign='center';ctx.fillText(tf,tx+tW/2,16);ctx.font='500 9px sans-serif';ctx.fillStyle='#888';for(let i=0;i<3;i++)ctx.fillText(emas[i],tx+i*cW+cW/2,34);for(let col=0;col<3;col++){{const nR=Math.pow(2,3-col),cH=tH/nR,x=tx+col*cW;for(let r=0;r<nR;r++){{ctx.fillStyle=r%2===0?GL:RL;ctx.fillRect(x,tP+r*cH,cW,cH);}}ctx.strokeStyle='#ccc';ctx.lineWidth=0.5;for(let r=1;r<nR;r++){{ctx.beginPath();ctx.moveTo(x,tP+r*cH);ctx.lineTo(x+cW,tP+r*cH);ctx.stroke();}}}}ctx.strokeStyle='#ccc';ctx.lineWidth=0.5;for(let col=1;col<3;col++){{ctx.beginPath();ctx.moveTo(tx+col*cW,tP);ctx.lineTo(tx+col*cW,tP+tH);ctx.stroke();}}ctx.strokeStyle='#aaa';ctx.lineWidth=1;ctx.strokeRect(tx,tP,tW,tH);ctx.font='400 8px sans-serif';ctx.fillStyle='#aaa';ctx.textAlign='left';ctx.fillText('30',tx+2,tP+tH+12);ctx.textAlign='right';ctx.fillText('70',tx+tW-2,tP+tH+12);ctx.textAlign='center';ctx.fillText('RSI',tx+tW/2,tP+tH+12);const items=[['Gold','gold'],['Bitcoin','btc'],['XAUBTC','xb']];for(const[aN,aT]of items){{const d=data[aN];if(!d||!d[tf])continue;const s=d[tf],r8=s2r(s.S,s.M,s.L),cH8=tH/8,iy=tP+r8*cH8+cH8/2,rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;if(aT==='gold')dGB(ix,iy,14,9);else{{const clr=aT==='btc'?'#f7931a':'#6366f1',lbl=aT==='btc'?'₿':'X/B',fs=aT==='btc'?'700 8px sans-serif':'700 5px sans-serif';ctx.beginPath();ctx.arc(ix,iy,7,0,Math.PI*2);ctx.fillStyle=clr;ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();ctx.strokeStyle='#333';ctx.lineWidth=0.5;ctx.stroke();ctx.font=fs;ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(lbl,ix,iy);}}}}const ly=tP+tH+28;let lx=sX+20;dGB(lx,ly,14,9);ctx.font='400 10px sans-serif';ctx.fillStyle='#666';ctx.textAlign='left';ctx.fillText('Gold',lx+12,ly+1);lx+=70;ctx.beginPath();ctx.arc(lx,ly,6,0,Math.PI*2);ctx.fillStyle='#f7931a';ctx.fill();ctx.font='700 7px sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('₿',lx,ly);ctx.font='400 10px sans-serif';ctx.fillStyle='#666';ctx.textAlign='left';ctx.fillText('Bitcoin',lx+10,ly+1);lx+=80;ctx.beginPath();ctx.arc(lx,ly,6,0,Math.PI*2);ctx.fillStyle='#6366f1';ctx.fill();ctx.font='700 5px sans-serif';ctx.fillStyle='#fff';ctx.textAlign='center';ctx.fillText('X/B',lx,ly);ctx.font='400 10px sans-serif';ctx.fillStyle='#666';ctx.textAlign='left';ctx.fillText('XAU/BTC',lx+10,ly+1);}}
+window.addEventListener('DOMContentLoaded',()=>{{document.querySelectorAll('table').forEach(tbl=>{{tbl.querySelectorAll('tr').forEach(row=>{{let off=0;row.querySelectorAll('.sticky').forEach(cell=>{{cell.style.left=off+'px';off+=cell.offsetWidth;}});}});}});function tick(){{const now=new Date(),m=now.getMinutes(),s=now.getSeconds(),left=((14-(m%15))*60)+(60-s),mm=String(Math.floor(left/60)).padStart(2,'0'),ss=String(left%60).padStart(2,'0');document.getElementById('cd').textContent='Next: '+mm+':'+ss;if(left<=0)location.reload();}}tick();setInterval(tick,1000);['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);drawStateMap();}});
+</script></body></html>"""
 
 def event_key(asset, ds, tm, iv, lb, cr): return f"{asset}|{ds}|{tm}|{iv}|{lb}|{cr}"
 
@@ -776,69 +527,69 @@ def find_last_4h_cross(all_events):
     return lt
 
 # ── Main ─────────────────────────────────────────────────────
-if __name__ == "__main__":
-    os.makedirs(DATA_DIR, exist_ok=True)
-    state = load_state()
-    now = datetime.now()
-    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{now_str}] report.py starting...")
-    sections, all_new_evs, asset_states = [], [], {}
-    for asset_name in ASSETS:
-        all_events = collect_events(asset_name)
-        rsi_data = collect_rsi(asset_name)
-        sections.append(build_table_html(asset_name, all_events, rsi_data))
-        asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
-        print(f"  {asset_name}: {asset_states[asset_name]}")
-        last_4h = find_last_4h_cross(all_events)
-        ecut = last_4h if last_4h else now - timedelta(hours=4)
-        for (ds, tm), ev in all_events.items():
-            if pd.Timestamp(f"{ds} {tm}") < ecut: continue
-            for iv, pairs in ev["crosses"].items():
-                for lb, cr in pairs.items():
-                    ek = event_key(asset_name, ds, tm, iv, lb, cr)
-                    all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
+os.makedirs(DATA_DIR, exist_ok=True)
+state = load_state()
+now = datetime.now()
+now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+print(f"[{now_str}] report.py starting...")
 
-    # Build state map
-    asm = {}
-    for an in ASSETS:
-        ae = collect_events(an); rd = collect_rsi(an)
-        cs = {}
-        for (d, t) in sorted(ae.keys()):
-            for iv in INTERVALS:
-                for _, _, lb in EMA_PAIRS:
-                    cr = ae[(d, t)]["crosses"].get(iv, {}).get(lb)
-                    if cr: cs[(iv, lb)] = "G" if cr == "GOLDEN" else "D"
-        als = sorted(ae.keys()); lk = als[-1] if als else None
-        rr = lookup_rsi(rd, lk[0], lk[1]) if lk and rd else {}
-        td = {}
+sections, all_new_evs, asset_states = [], [], {}
+for asset_name in ASSETS:
+    all_events = collect_events(asset_name)
+    rsi_data = collect_rsi(asset_name)
+    sections.append(build_table_html(asset_name, all_events, rsi_data))
+    asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
+    print(f"  {asset_name}: {asset_states[asset_name]}")
+    last_4h = find_last_4h_cross(all_events)
+    ecut = last_4h if last_4h else now - timedelta(hours=4)
+    for (ds, tm), ev in all_events.items():
+        if pd.Timestamp(f"{ds} {tm}") < ecut: continue
+        for iv, pairs in ev["crosses"].items():
+            for lb, cr in pairs.items():
+                ek = event_key(asset_name, ds, tm, iv, lb, cr)
+                all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
+
+# Build state map
+asm = {}
+for an in ASSETS:
+    ae = collect_events(an); rd = collect_rsi(an)
+    cs = {}
+    for (d, t) in sorted(ae.keys()):
         for iv in INTERVALS:
-            td[iv] = {"S": cs.get((iv, "S"), "G"), "M": cs.get((iv, "M"), "G"), "L": cs.get((iv, "L"), "G"), "rsi": round(rr.get(iv, 50), 0)}
-        asm[an] = td
-    smh = build_state_map_html(asm)
+            for _, _, lb in EMA_PAIRS:
+                cr = ae[(d, t)]["crosses"].get(iv, {}).get(lb)
+                if cr: cs[(iv, lb)] = "G" if cr == "GOLDEN" else "D"
+    als = sorted(ae.keys()); lk = als[-1] if als else None
+    rr = lookup_rsi(rd, lk[0], lk[1]) if lk and rd else {}
+    td = {}
+    for iv in INTERVALS:
+        td[iv] = {"S": cs.get((iv, "S"), "G"), "M": cs.get((iv, "M"), "G"), "L": cs.get((iv, "L"), "G"), "rsi": round(rr.get(iv, 50), 0)}
+    asm[an] = td
+smh = build_state_map_html(asm)
 
-    html = build_html(sections, smh)
-    with open(OUTPUT_HTML, "w", encoding="utf-8") as f: f.write(html)
-    print(f"  HTML saved: {OUTPUT_HTML}")
+html = build_html(sections, smh)
+with open(OUTPUT_HTML, "w", encoding="utf-8") as f: f.write(html)
+print(f"  HTML saved: {OUTPUT_HTML}")
 
-    DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
-    if DRIVE_FOLDER_ID: upload_to_drive(OUTPUT_HTML, DRIVE_FOLDER_ID)
+DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "")
+if DRIVE_FOLDER_ID: upload_to_drive(OUTPUT_HTML, DRIVE_FOLDER_ID)
 
-    truly_new = [e for e in all_new_evs if e["event_key"] not in state["sent_events"]]
-    if truly_new:
-        can_send = True
-        if state.get("last_email"):
-            if (now - datetime.fromisoformat(state["last_email"])).total_seconds() / 60 < MIN_EMAIL_GAP:
-                can_send = False; print(f"  Email cooldown")
-        if can_send:
-            sp = [f"{a}: {s}" for a, s in asset_states.items()]
-            subj = f"⚡ {' | '.join(sp)} — {len(truly_new)} new"
-            if send_email(subj, build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID, asset_states)):
-                state["last_email"] = now.isoformat()
-                print(f"  Email sent: {len(truly_new)} new, {len(all_new_evs)} total shown")
-        for ev in truly_new: state["sent_events"].append(ev["event_key"])
-        state["sent_events"] = state["sent_events"][-2000:]
-    else:
-        print("  No new events.")
+truly_new = [e for e in all_new_evs if e["event_key"] not in state["sent_events"]]
+if truly_new:
+    can_send = True
+    if state.get("last_email"):
+        if (now - datetime.fromisoformat(state["last_email"])).total_seconds() / 60 < MIN_EMAIL_GAP:
+            can_send = False; print(f"  Email cooldown")
+    if can_send:
+        sp = [f"{a}: {s}" for a, s in asset_states.items()]
+        subj = f"⚡ {' | '.join(sp)} — {len(truly_new)} new"
+        if send_email(subj, build_email_body(all_new_evs, now_str, DRIVE_FOLDER_ID, asset_states)):
+            state["last_email"] = now.isoformat()
+            print(f"  Email sent: {len(truly_new)} new, {len(all_new_evs)} total shown")
+    for ev in truly_new: state["sent_events"].append(ev["event_key"])
+    state["sent_events"] = state["sent_events"][-2000:]
+else:
+    print("  No new events.")
 
-    save_state(state)
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] report.py done.")
+save_state(state)
+print(f"[{datetime.now().strftime('%H:%M:%S')}] report.py done.")
