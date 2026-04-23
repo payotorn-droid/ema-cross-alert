@@ -230,9 +230,66 @@ def build_full_heatmap_html(asset_name, all_events, years=4):
     fd, ld = dk[0][0], dk[-1][0]
     return f"""<div class="modal-overlay" id="modal-{asset_name}" onclick="if(event.target===this)closeModal('{asset_name}')"><div class="modal-content"><div class="modal-header"><div class="modal-title">{asset_name} · Full Heatmap · {rows} events · {fd} → {ld}</div><button class="modal-close" onclick="closeModal('{asset_name}')">×</button></div><div class="modal-body"><svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">{rects}</svg></div></div></div>"""
 
-def build_state_map_html(all_assets_state):
+def build_state_timeline_frames(asset_data, N=50):
+    """Build N-frame timeline: state of all assets at each Gold cross timestamp.
+    Uses Gold as master clock; queries other assets via asof-style running state.
+    """
+    # Precompute running cross-state snapshots per asset (tuples sorted by time)
+    running = {}
+    for asset in ASSETS:
+        events = asset_data.get(asset, {}).get("events", {})
+        snapshots = []
+        cs = {}
+        for key in sorted(events.keys()):
+            for iv in INTERVALS:
+                for _, _, lb in EMA_PAIRS:
+                    cr = events[key]["crosses"].get(iv, {}).get(lb)
+                    if cr: cs[(iv, lb)] = "G" if cr == "GOLDEN" else "D"
+            snapshots.append((pd.Timestamp(f"{key[0]} {key[1]}"), dict(cs)))
+        running[asset] = snapshots
+
+    # Master timeline = last N Gold cross timestamps
+    gold_events = asset_data.get("Gold", {}).get("events", {})
+    sorted_gold = sorted(gold_events.keys())
+    if not sorted_gold: return []
+    pivots = sorted_gold[-N:]
+
+    frames = []
+    for (d, t) in pivots:
+        ts = pd.Timestamp(f"{d} {t}")
+        frame = {"ts": f"{d} {t}"}
+        for asset in ASSETS:
+            # Find last snapshot with ts <= pivot_ts
+            snaps = running[asset]
+            cs = {}
+            for s_ts, s_cs in snaps:
+                if s_ts > ts: break
+                cs = s_cs
+            # RSI lookup at ts
+            rsi_data = asset_data.get(asset, {}).get("rsi", {})
+            rr = {}
+            for iv, rsi in rsi_data.items():
+                v = rsi.asof(ts)
+                if pd.notna(v): rr[iv] = round(float(v), 0)
+            # Build state dict for this asset at this frame
+            td = {}
+            for iv in INTERVALS:
+                td[iv] = {
+                    "S": cs.get((iv, "S"), "G"),
+                    "M": cs.get((iv, "M"), "G"),
+                    "L": cs.get((iv, "L"), "G"),
+                    "rsi": rr.get(iv, 50),
+                }
+            frame[asset] = td
+        frames.append(frame)
+    return frames
+
+def build_state_map_html(frames):
     import json as _j
-    return f'<div class="state-map-box"><div class="state-map-label">STATE MAP</div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas></div><script>window._stateMapData={_j.dumps(all_assets_state)};</script>'
+    if not frames:
+        return '<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div></div><script>window._stateMapFrames=[];</script>'
+    latest_ts = frames[-1]["ts"]
+    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div></div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
 
 def build_table_html(asset_name, all_events, rsi_data=None):
     ne = len(EMA_PAIRS)
@@ -406,8 +463,7 @@ function animateIndicator(asset){
   step();
 }
 
-function drawStateMap(){
-  const data=window._stateMapData;
+function drawStateMap(data){
   if(!data)return;
   const cv=document.getElementById('stateMap');
   if(!cv)return;
@@ -554,6 +610,33 @@ function drawStateMap(){
   ctx.fillText('XAU/BTC',lx+10,ly+1);
 }
 
+function animateStateMap(){
+  const frames=window._stateMapFrames;
+  if(!frames||!frames.length)return;
+  const dur=8000,frameMs=dur/frames.length,pauseMs=2000;
+  let i=0,paused=false;
+  function step(){
+    if(paused)return;
+    const f=frames[i];
+    // Split frame into {asset: state} payload (drop ts key)
+    const payload={};
+    for(const k of Object.keys(f)){if(k!=='ts')payload[k]=f[k];}
+    drawStateMap(payload);
+    const ts=document.getElementById('stateMapTs');
+    if(ts)ts.textContent=f.ts;
+    const prog=document.getElementById('stateMapProg');
+    if(prog)prog.style.width=((i+1)/frames.length*100)+'%';
+    if(i===frames.length-1){
+      paused=true;
+      setTimeout(()=>{i=0;paused=false;step();},pauseMs);
+    }else{
+      i++;
+      setTimeout(step,frameMs);
+    }
+  }
+  step();
+}
+
 window.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('table').forEach(tbl=>{
     tbl.querySelectorAll('tr').forEach(row=>{
@@ -572,7 +655,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   tick();
   setInterval(tick,1000);
   ['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);
-  drawStateMap();
+  animateStateMap();
 });
 """
 
@@ -597,7 +680,11 @@ body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--t
 .lg{{background:var(--g-bg);color:var(--g-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
 .ld{{background:var(--d-bg);color:var(--d-fg);border-radius:3px;padding:1px 7px;font-weight:700;}}
 .state-map-box{{margin-bottom:14px;padding:8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
-.state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}}
+.state-map-header{{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:4px;}}
+.state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;}}
+.state-map-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
+.state-map-progress{{height:2px;background:var(--border);border-radius:1px;overflow:hidden;margin-top:4px;}}
+.state-map-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
 .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
 .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
 .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
@@ -783,9 +870,11 @@ if __name__ == "__main__":
     now_str = now.strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now_str}] report.py starting...")
     sections, all_new_evs, asset_states = [], [], {}
+    asset_data = {}  # Cache {asset: {"events": ..., "rsi": ...}} for reuse in state map build
     for asset_name in ASSETS:
         all_events = collect_events(asset_name)
         rsi_data = collect_rsi(asset_name)
+        asset_data[asset_name] = {"events": all_events, "rsi": rsi_data}
         sections.append(build_table_html(asset_name, all_events, rsi_data))
         asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
         print(f"  {asset_name}: {asset_states[asset_name]}")
@@ -798,23 +887,9 @@ if __name__ == "__main__":
                     ek = event_key(asset_name, ds, tm, iv, lb, cr)
                     all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
 
-    # Build state map
-    asm = {}
-    for an in ASSETS:
-        ae = collect_events(an); rd = collect_rsi(an)
-        cs = {}
-        for (d, t) in sorted(ae.keys()):
-            for iv in INTERVALS:
-                for _, _, lb in EMA_PAIRS:
-                    cr = ae[(d, t)]["crosses"].get(iv, {}).get(lb)
-                    if cr: cs[(iv, lb)] = "G" if cr == "GOLDEN" else "D"
-        als = sorted(ae.keys()); lk = als[-1] if als else None
-        rr = lookup_rsi(rd, lk[0], lk[1]) if lk and rd else {}
-        td = {}
-        for iv in INTERVALS:
-            td[iv] = {"S": cs.get((iv, "S"), "G"), "M": cs.get((iv, "M"), "G"), "L": cs.get((iv, "L"), "G"), "rsi": round(rr.get(iv, 50), 0)}
-        asm[an] = td
-    smh = build_state_map_html(asm)
+    # Build state map with animation timeline (last 50 Gold events as master clock)
+    frames = build_state_timeline_frames(asset_data, N=50)
+    smh = build_state_map_html(frames)
 
     html = build_html(sections, smh)
     with open(OUTPUT_HTML, "w", encoding="utf-8") as f: f.write(html)
