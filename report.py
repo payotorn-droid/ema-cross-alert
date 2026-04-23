@@ -887,8 +887,8 @@ if __name__ == "__main__":
                     ek = event_key(asset_name, ds, tm, iv, lb, cr)
                     all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
 
-    # Build state map with animation timeline (last 50 Gold events as master clock)
-    frames = build_state_timeline_frames(asset_data, N=50)
+    # Build state map with animation timeline aligned to indicator (same N as MAX_ROWS)
+    frames = build_state_timeline_frames(asset_data, N=MAX_ROWS)
     smh = build_state_map_html(frames)
 
     html = build_html(sections, smh)
