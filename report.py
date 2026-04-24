@@ -20,7 +20,7 @@ MIN_EMAIL_GAP = 60
 # ASSETS: all assets with data pipeline
 # MAIN_ASSETS: subset shown in indicator panels, tables, and email alerts
 # Assets in ASSETS but not MAIN_ASSETS appear only in the state map
-ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC", "SPY": "SPY"}
+ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC", "SPY": "SPY", "QQQ": "QQQ", "DXY": "DX=F"}
 MAIN_ASSETS = ["Gold", "Bitcoin", "XAUBTC"]
 EMA_PAIRS = [(12, 26, "S"), (20, 50, "M"), (50, 200, "L")]
 INTERVALS = ["15m", "30m", "1h", "4h", "1d"]
@@ -318,6 +318,12 @@ def build_state_map_html(frames):
   <button class="sm-legend-pill active" data-asset="SPY">
     <span class="sm-legend-swatch sm-sw-spy"></span>SPY
   </button>
+  <button class="sm-legend-pill active" data-asset="QQQ">
+    <span class="sm-legend-swatch sm-sw-qqq">Q</span>QQQ
+  </button>
+  <button class="sm-legend-pill active" data-asset="DXY">
+    <span class="sm-legend-swatch sm-sw-dxy">$</span>DXY
+  </button>
 </div>'''
     if not frames:
         return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
@@ -507,7 +513,7 @@ const STATE_TOTAL=8;
 // Animation always advances; drawing skips assets that are off.
 // Re-enabling shows trail continuously (no reset) since we always look up
 // past frames from the global frame array.
-window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:true,SPY:true};
+window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:true,SPY:true,QQQ:true,DXY:true};
 
 function drawStateMap(data,idx){
   if(!data)return;
@@ -658,7 +664,7 @@ function drawStateMap(data,idx){
     ctx.textAlign='center';
     ctx.fillText('RSI',tx+tW/2,tP+tH+12);
 
-    const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1'],['SPY','spy','#991b1b']];
+    const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1'],['SPY','spy','#991b1b'],['QQQ','qqq','#1a6fc9'],['DXY','dxy','#15803d']];
 
     // Draw trails (meteor-tail). Base 3 tapered segments for all TFs:
     //   n-1 → n (75% width, alpha1),  n-2 → n-1 (50%, alpha2),  n-3 → n-2 (50%, alpha3)
@@ -671,6 +677,8 @@ function drawStateMap(data,idx){
     //   Bitcoin #d97706  90/60/4d (57/38/30%)
     //   XAUBTC  #6366f1  80/40/26 (50/25/15%)
     //   SPY     #991b1b  80/40/26 (50/25/15%)
+    //   QQQ     #1a6fc9  80/40/26 (50/25/15%)
+    //   DXY     #15803d  80/40/26 (50/25/15%)
     const framesArr=window._stateMapFrames||[];
     if(typeof idx==='number'&&idx>=1){
       function posAt(fi,aN){
@@ -687,6 +695,8 @@ function drawStateMap(data,idx){
         Bitcoin: ['#d97706','90','60','4d'],
         XAUBTC:  ['#6366f1','80','40','26'],
         SPY:     ['#991b1b','80','40','26'],
+        QQQ:     ['#1a6fc9','80','40','26'],
+        DXY:     ['#15803d','80','40','26'],
       };
       // How many extra extension segments per TF (beyond the 3 base)
       // 1h adds 1, 4h adds 50, 1d adds 200 (full timeline worth of trail)
@@ -740,7 +750,12 @@ function drawStateMap(data,idx){
         ctx.strokeStyle='#7f1d1d';ctx.lineWidth=0.5;ctx.stroke();
       }
       else{
-        const clr=aT==='btc'?'#f7931a':'#6366f1',lbl=aT==='btc'?'₿':'X/B',fs=aT==='btc'?'700 8px sans-serif':'700 5px sans-serif';
+        // Generic filled-circle icon with single-char label (BTC/XAUBTC/QQQ/DXY)
+        let clr,lbl,fs;
+        if(aT==='btc'){clr='#f7931a';lbl='₿';fs='700 8px sans-serif';}
+        else if(aT==='qqq'){clr='#1a6fc9';lbl='Q';fs='700 8px sans-serif';}
+        else if(aT==='dxy'){clr='#15803d';lbl='$';fs='700 8px sans-serif';}
+        else{clr='#6366f1';lbl='X/B';fs='700 5px sans-serif';}
         ctx.beginPath();
         ctx.arc(ix,iy,7,0,Math.PI*2);
         ctx.fillStyle=clr;
@@ -973,6 +988,8 @@ body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--t
 .sm-sw-btc{{background:#f7931a;border:1px solid #333;}}
 .sm-sw-xb{{background:#6366f1;border:1px solid #333;font-size:6px;}}
 .sm-sw-spy{{background:radial-gradient(circle,#fff 0%,#fff 20%,#dc2626 30%,#dc2626 60%,#fff 60%,#fff 70%,#dc2626 70%,#dc2626 100%);border:1px solid #7f1d1d;}}
+.sm-sw-qqq{{background:#1a6fc9;border:1px solid #333;font-size:9px;}}
+.sm-sw-dxy{{background:#15803d;border:1px solid #333;font-size:9px;}}
 .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
 .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
 .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}

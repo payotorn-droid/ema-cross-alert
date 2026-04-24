@@ -16,6 +16,8 @@ ASSETS = {
     "Gold":    "GC=F",
     "Bitcoin": "BTC-USD",
     "SPY":     "SPY",
+    "QQQ":     "QQQ",
+    "DXY":     "DX=F",
 }
 
 INTERVAL_CONFIG = {
