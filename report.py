@@ -463,6 +463,15 @@ function animateIndicator(asset){
   step();
 }
 
+// Row heights: [LGG-SG, LGG-SD, LGD-SG, LGD-SD, LDG-SG, LDG-SD, LDD-SG, LDD-SD]
+// Order: row index r8 = (L==D)*4 + (M==D)*2 + (S==D)
+// Heights derived from rule: parent 1.5x/0.5x; S=G in M=G gets 1.5x of parent M.
+const STATE_ROW_H=[2.25,0.75,0.75,0.25,0.25,0.75,0.75,2.25];  // sum=8
+const STATE_TOTAL=8;
+
+// Selected timeframe for speed control (null = uniform 8s cycle)
+window._selectedTf=window._selectedTf||null;
+
 function drawStateMap(data){
   if(!data)return;
   const cv=document.getElementById('stateMap');
@@ -472,12 +481,55 @@ function drawStateMap(data){
   const tfs=['15m','30m','1h','4h','1d'],emas=['S','M','L'];
   const cW=28,gap=16,tW=3*cW,tH=240,tP=55,sX=14,GL='#dcfce7',RL='#fee2e2';
 
+  // Compute y-center of row r8 in a single timeframe grid
+  function rowCY(r8){
+    let acc=0;
+    for(let r=0;r<r8;r++)acc+=STATE_ROW_H[r];
+    return tP+(acc+STATE_ROW_H[r8]/2)/STATE_TOTAL*tH;
+  }
+
   function s2r(s,m,l){
     let r=0;
     if(l==='D')r+=4;
     if(m==='D')r+=2;
     if(s==='D')r+=1;
     return r;
+  }
+
+  // Column-based cell fill: each of 3 columns shows green/red bands
+  // following the row heights of that column's partition level.
+  // S column: 8 alternating bands (using STATE_ROW_H directly).
+  // M column: 4 bands (each = sum of 2 S-rows sharing same L,M).
+  // L column: 2 bands (each = sum of 4 rows).
+  function fillColumn(tx,col){
+    const x=tx+col*cW;
+    let y=tP;
+    if(col===0){
+      // S: 8 bands of varying heights, row pattern S: G,D,G,D,G,D,G,D
+      for(let r=0;r<8;r++){
+        const h=STATE_ROW_H[r]/STATE_TOTAL*tH;
+        ctx.fillStyle=(r%2===0)?GL:RL;
+        ctx.fillRect(x,y,cW,h);
+        y+=h;
+      }
+    }else if(col===1){
+      // M: 4 bands, pair of rows (r, r+1) share M
+      // M pattern: G,D,G,D (rows 0-1,2-3,4-5,6-7)
+      for(let p=0;p<4;p++){
+        const h=(STATE_ROW_H[p*2]+STATE_ROW_H[p*2+1])/STATE_TOTAL*tH;
+        ctx.fillStyle=(p%2===0)?GL:RL;
+        ctx.fillRect(x,y,cW,h);
+        y+=h;
+      }
+    }else{
+      // L: 2 bands
+      let hTop=0;for(let r=0;r<4;r++)hTop+=STATE_ROW_H[r];
+      hTop=hTop/STATE_TOTAL*tH;
+      ctx.fillStyle=GL;
+      ctx.fillRect(x,y,cW,hTop);
+      ctx.fillStyle=RL;
+      ctx.fillRect(x,y+hTop,cW,tH-hTop);
+    }
   }
 
   function dGB(cx,cy,w,h){
@@ -500,32 +552,56 @@ function drawStateMap(data){
     ctx.stroke();
   }
 
+  // Store hit regions for click detection (rebuilt each draw)
+  window._stateMapHitRegions=[];
+
   for(let t=0;t<5;t++){
     const tx=sX+t*(tW+gap),tf=tfs[t];
+    window._stateMapHitRegions.push({tf,x:tx,y:tP,w:tW,h:tH});
+
     ctx.font='700 11px sans-serif';
-    ctx.fillStyle='#1d4ed8';
+    ctx.fillStyle=(window._selectedTf===tf)?'#ea580c':'#1d4ed8';
     ctx.textAlign='center';
     ctx.fillText(tf,tx+tW/2,16);
     ctx.font='500 9px sans-serif';
     ctx.fillStyle='#888';
     for(let i=0;i<3;i++)ctx.fillText(emas[i],tx+i*cW+cW/2,34);
 
-    for(let col=0;col<3;col++){
-      const nR=Math.pow(2,3-col),cH=tH/nR,x=tx+col*cW;
-      for(let r=0;r<nR;r++){
-        ctx.fillStyle=r%2===0?GL:RL;
-        ctx.fillRect(x,tP+r*cH,cW,cH);
-      }
-      ctx.strokeStyle='#ccc';
-      ctx.lineWidth=0.5;
-      for(let r=1;r<nR;r++){
-        ctx.beginPath();
-        ctx.moveTo(x,tP+r*cH);
-        ctx.lineTo(x+cW,tP+r*cH);
-        ctx.stroke();
+    // Fill each column with its partition pattern
+    for(let col=0;col<3;col++)fillColumn(tx,col);
+
+    // Horizontal dividers between row-partitions (only S column has 8, M has 4, L has 2)
+    ctx.strokeStyle='#ccc';
+    ctx.lineWidth=0.5;
+    // S column: 7 dividers at cumulative row boundaries
+    {
+      const x=tx;
+      let acc=0;
+      for(let r=1;r<8;r++){
+        acc+=STATE_ROW_H[r-1];
+        const y=tP+acc/STATE_TOTAL*tH;
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+cW,y);ctx.stroke();
       }
     }
+    // M column: 3 dividers
+    {
+      const x=tx+cW;
+      let acc=0;
+      for(let p=1;p<4;p++){
+        acc+=STATE_ROW_H[(p-1)*2]+STATE_ROW_H[(p-1)*2+1];
+        const y=tP+acc/STATE_TOTAL*tH;
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+cW,y);ctx.stroke();
+      }
+    }
+    // L column: 1 divider (middle)
+    {
+      const x=tx+2*cW;
+      let acc=0;for(let r=0;r<4;r++)acc+=STATE_ROW_H[r];
+      const y=tP+acc/STATE_TOTAL*tH;
+      ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+cW,y);ctx.stroke();
+    }
 
+    // Vertical column dividers
     ctx.strokeStyle='#ccc';
     ctx.lineWidth=0.5;
     for(let col=1;col<3;col++){
@@ -534,9 +610,18 @@ function drawStateMap(data){
       ctx.lineTo(tx+col*cW,tP+tH);
       ctx.stroke();
     }
-    ctx.strokeStyle='#aaa';
-    ctx.lineWidth=1;
+
+    // Outer border (highlight if selected)
+    if(window._selectedTf===tf){
+      ctx.strokeStyle='#ea580c';
+      ctx.lineWidth=2.5;
+    }else{
+      ctx.strokeStyle='#aaa';
+      ctx.lineWidth=1;
+    }
     ctx.strokeRect(tx,tP,tW,tH);
+    ctx.lineWidth=1;
+
     ctx.font='400 8px sans-serif';
     ctx.fillStyle='#aaa';
     ctx.textAlign='left';
@@ -550,7 +635,7 @@ function drawStateMap(data){
     for(const[aN,aT] of items){
       const d=data[aN];
       if(!d||!d[tf])continue;
-      const s=d[tf],r8=s2r(s.S,s.M,s.L),cH8=tH/8,iy=tP+r8*cH8+cH8/2,rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;
+      const s=d[tf],r8=s2r(s.S,s.M,s.L),iy=rowCY(r8),rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;
       if(aT==='gold')dGB(ix,iy,14,9);
       else{
         const clr=aT==='btc'?'#f7931a':'#6366f1',lbl=aT==='btc'?'₿':'X/B',fs=aT==='btc'?'700 8px sans-serif':'700 5px sans-serif';
@@ -610,31 +695,95 @@ function drawStateMap(data){
   ctx.fillText('XAU/BTC',lx+10,ly+1);
 }
 
+// Speed ratios (relative to 1d): 15m:30m:1h:4h:1d = 28:16:8:6:1
+// i.e. 1d is slowest (1x), 15m is fastest (28x cycles per 1d cycle)
+// When a TF is selected, it runs at 3 sec/cycle; others scale proportionally.
+const TF_CYCLE_RATIO={'15m':28,'30m':16,'1h':8,'4h':6,'1d':1};
+
+function computeCycleDur(){
+  // Returns {tf: cycleMs} map. Default (no selection): all 8000ms.
+  const sel=window._selectedTf;
+  if(!sel)return {'15m':8000,'30m':8000,'1h':8000,'4h':8000,'1d':8000};
+  // Selected TF = 3000ms. Others: cycleMs_tf = 3000 * (ratio_sel / ratio_tf)
+  const r=TF_CYCLE_RATIO;
+  const out={};
+  for(const tf of ['15m','30m','1h','4h','1d']){
+    out[tf]=3000*(r[sel]/r[tf]);
+  }
+  return out;
+}
+
+// Per-TF frame index state (each TF advances at its own pace)
+window._stateMapTfIdx={'15m':0,'30m':0,'1h':0,'4h':0,'1d':0};
+window._stateMapTfLastTick={'15m':0,'30m':0,'1h':0,'4h':0,'1d':0};
+window._stateMapAnimId=null;
+
 function animateStateMap(){
   const frames=window._stateMapFrames;
   if(!frames||!frames.length)return;
-  const dur=8000,frameMs=dur/frames.length,pauseMs=2000;
-  let i=0,paused=false;
-  function step(){
-    if(paused)return;
-    const f=frames[i];
-    // Split frame into {asset: state} payload (drop ts key)
-    const payload={};
-    for(const k of Object.keys(f)){if(k!=='ts')payload[k]=f[k];}
-    drawStateMap(payload);
-    const ts=document.getElementById('stateMapTs');
-    if(ts)ts.textContent=f.ts;
-    const prog=document.getElementById('stateMapProg');
-    if(prog)prog.style.width=((i+1)/frames.length*100)+'%';
-    if(i===frames.length-1){
-      paused=true;
-      setTimeout(()=>{i=0;paused=false;step();},pauseMs);
-    }else{
-      i++;
-      setTimeout(step,frameMs);
+  const N=frames.length,tfs=['15m','30m','1h','4h','1d'];
+
+  function step(now){
+    const cycle=computeCycleDur();
+    // Advance each TF's index independently based on its cycle duration
+    for(const tf of tfs){
+      const frameMs=cycle[tf]/N;
+      if(!window._stateMapTfLastTick[tf])window._stateMapTfLastTick[tf]=now;
+      if(now-window._stateMapTfLastTick[tf]>=frameMs){
+        window._stateMapTfIdx[tf]=(window._stateMapTfIdx[tf]+1)%N;
+        window._stateMapTfLastTick[tf]=now;
+      }
     }
+
+    // Build composite payload: for each asset, use the frame at each TF's own idx
+    const payload={};
+    for(const an of ['Gold','Bitcoin','XAUBTC']){
+      payload[an]={};
+      for(const tf of tfs){
+        const f=frames[window._stateMapTfIdx[tf]];
+        if(f&&f[an]&&f[an][tf])payload[an][tf]=f[an][tf];
+      }
+    }
+    drawStateMap(payload);
+
+    // Timestamp/progress show the slowest-moving TF when a TF is selected,
+    // else the master timeline (Gold, same as all).
+    const refTf=window._selectedTf||'1d';
+    const refIdx=window._stateMapTfIdx[refTf];
+    const refFrame=frames[refIdx];
+    const ts=document.getElementById('stateMapTs');
+    if(ts&&refFrame)ts.textContent=refFrame.ts+(window._selectedTf?' · ref '+refTf:'');
+    const prog=document.getElementById('stateMapProg');
+    if(prog)prog.style.width=((refIdx+1)/N*100)+'%';
+
+    window._stateMapAnimId=requestAnimationFrame(step);
   }
-  step();
+  window._stateMapAnimId=requestAnimationFrame(step);
+}
+
+// Click handler: detect which TF box was clicked, toggle selection
+function setupStateMapClick(){
+  const cv=document.getElementById('stateMap');
+  if(!cv)return;
+  cv.style.cursor='pointer';
+  cv.addEventListener('click',e=>{
+    const rect=cv.getBoundingClientRect();
+    const scaleX=cv.width/rect.width,scaleY=cv.height/rect.height;
+    const cx=(e.clientX-rect.left)*scaleX,cy=(e.clientY-rect.top)*scaleY;
+    const regs=window._stateMapHitRegions||[];
+    for(const r of regs){
+      if(cx>=r.x&&cx<=r.x+r.w&&cy>=r.y&&cy<=r.y+r.h){
+        // Toggle: click same tf again = deselect
+        window._selectedTf=(window._selectedTf===r.tf)?null:r.tf;
+        // Reset per-TF tick timers so new speeds start fresh
+        const now=performance.now();
+        for(const tf in window._stateMapTfLastTick)window._stateMapTfLastTick[tf]=now;
+        return;
+      }
+    }
+    // Clicked outside any TF grid = deselect
+    window._selectedTf=null;
+  });
 }
 
 window.addEventListener('DOMContentLoaded',()=>{
@@ -655,6 +804,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   tick();
   setInterval(tick,1000);
   ['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);
+  setupStateMapClick();
   animateStateMap();
 });
 """
