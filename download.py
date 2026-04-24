@@ -17,7 +17,7 @@ ASSETS = {
     "Bitcoin": "BTC-USD",
     "SPY":     "SPY",
     "QQQ":     "QQQ",
-    "DXY":     "DX=F",
+    "DXY":     "DX-Y.NYB",
 }
 
 INTERVAL_CONFIG = {

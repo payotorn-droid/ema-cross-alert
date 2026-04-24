@@ -20,7 +20,7 @@ MIN_EMAIL_GAP = 60
 # ASSETS: all assets with data pipeline
 # MAIN_ASSETS: subset shown in indicator panels, tables, and email alerts
 # Assets in ASSETS but not MAIN_ASSETS appear only in the state map
-ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC", "SPY": "SPY", "QQQ": "QQQ", "DXY": "DX=F"}
+ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC", "SPY": "SPY", "QQQ": "QQQ", "DXY": "DX-Y.NYB"}
 MAIN_ASSETS = ["Gold", "Bitcoin", "XAUBTC"]
 EMA_PAIRS = [(12, 26, "S"), (20, 50, "M"), (50, 200, "L")]
 INTERVALS = ["15m", "30m", "1h", "4h", "1d"]
