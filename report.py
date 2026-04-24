@@ -636,8 +636,11 @@ function drawStateMap(data,idx){
 
     const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1']];
 
-    // Draw trails (meteor-tail style): n-3→n-2 (15%, 25% width), n-2→n-1 (25%, 50% width), n-1→n (50%, 75% width)
-    // Widths scaled to icon size = 14px. Alphas in hex: 80=50%, 40=25%, 26=15%.
+    // Draw trails (meteor-tail style). Per-asset trail color (BTC uses darker + stronger alpha):
+    //   Gold    : #92400e, alphas 80/40/26 (50/25/15%)
+    //   Bitcoin : #d97706, alphas 90/60/4d (57/38/30%)  ← darker tone + bumped alpha for visibility
+    //   XAUBTC  : #6366f1, alphas 80/40/26 (50/25/15%)
+    // Widths (all assets): 75%/50%/50% of 14px icon.
     const framesArr=window._stateMapFrames||[];
     if(typeof idx==='number'&&idx>=1){
       function posAt(fi,aN){
@@ -649,6 +652,12 @@ function drawStateMap(data,idx){
         return {ix:tx+((rv-30)/40)*tW,iy:rowCY(r)};
       }
       const ICON=14;
+      // Per-asset trail palette: [color, alpha_n1n, alpha_n2n1, alpha_n3n2]
+      const TRAIL={
+        Gold:    ['#92400e','80','40','26'],
+        Bitcoin: ['#d97706','90','60','4d'],
+        XAUBTC:  ['#6366f1','80','40','26'],
+      };
       function drawSeg(a,b,clr,alphaHex,widthFrac){
         if(!a||!b)return;
         ctx.strokeStyle=clr+alphaHex;
@@ -659,12 +668,14 @@ function drawStateMap(data,idx){
         ctx.lineTo(b.ix,b.iy);
         ctx.stroke();
       }
-      for(const[aN,,trailClr] of items){
+      for(const[aN] of items){
+        const tr=TRAIL[aN];if(!tr)continue;
+        const clr=tr[0];
         const p0=posAt(idx,aN),p1=posAt(idx-1,aN),p2=posAt(idx-2,aN),p3=posAt(idx-3,aN);
         // Draw oldest → newest so newer segments render on top
-        if(idx>=3)drawSeg(p3,p2,trailClr,'26',0.25);  // n-3 → n-2: 15% alpha, 25% width
-        if(idx>=2)drawSeg(p2,p1,trailClr,'40',0.50);  // n-2 → n-1: 25% alpha, 50% width
-        drawSeg(p1,p0,trailClr,'80',0.75);            // n-1 → n:   50% alpha, 75% width
+        if(idx>=3)drawSeg(p3,p2,clr,tr[3],0.50);  // n-3 → n-2: 50% width (was 25%)
+        if(idx>=2)drawSeg(p2,p1,clr,tr[2],0.50);  // n-2 → n-1: 50% width
+        drawSeg(p1,p0,clr,tr[1],0.75);            // n-1 → n:   75% width
       }
       ctx.lineWidth=1;
     }
