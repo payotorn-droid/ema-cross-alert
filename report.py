@@ -636,11 +636,16 @@ function drawStateMap(data,idx){
 
     const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1']];
 
-    // Draw trails (meteor-tail style). Per-asset trail color (BTC uses darker + stronger alpha):
-    //   Gold    : #92400e, alphas 80/40/26 (50/25/15%)
-    //   Bitcoin : #d97706, alphas 90/60/4d (57/38/30%)  ← darker tone + bumped alpha for visibility
-    //   XAUBTC  : #6366f1, alphas 80/40/26 (50/25/15%)
-    // Widths (all assets): 75%/50%/50% of 14px icon.
+    // Draw trails (meteor-tail). Base 3 tapered segments for all TFs:
+    //   n-1 → n (75% width, alpha1),  n-2 → n-1 (50%, alpha2),  n-3 → n-2 (50%, alpha3)
+    // Higher TFs add constant-spec extensions equal to 3rd-segment spec:
+    //   1h adds 1 seg  (n-4 → n-3)
+    //   4h adds 2 segs (n-5 → n-4, n-4 → n-3)
+    //   1d adds 3 segs (n-6 → n-5, n-5 → n-4, n-4 → n-3)
+    // Per-asset palette: [color, alpha_n1n, alpha_n2n1, alpha_n3n2_and_ext]
+    //   Gold    #92400e  80/40/26 (50/25/15%)
+    //   Bitcoin #d97706  90/60/4d (57/38/30%)
+    //   XAUBTC  #6366f1  80/40/26 (50/25/15%)
     const framesArr=window._stateMapFrames||[];
     if(typeof idx==='number'&&idx>=1){
       function posAt(fi,aN){
@@ -652,12 +657,13 @@ function drawStateMap(data,idx){
         return {ix:tx+((rv-30)/40)*tW,iy:rowCY(r)};
       }
       const ICON=14;
-      // Per-asset trail palette: [color, alpha_n1n, alpha_n2n1, alpha_n3n2]
       const TRAIL={
         Gold:    ['#92400e','80','40','26'],
         Bitcoin: ['#d97706','90','60','4d'],
         XAUBTC:  ['#6366f1','80','40','26'],
       };
+      // How many extra extension segments per TF (beyond the 3 base)
+      const TF_EXT={'15m':0,'30m':0,'1h':1,'4h':2,'1d':3};
       function drawSeg(a,b,clr,alphaHex,widthFrac){
         if(!a||!b)return;
         ctx.strokeStyle=clr+alphaHex;
@@ -668,14 +674,22 @@ function drawStateMap(data,idx){
         ctx.lineTo(b.ix,b.iy);
         ctx.stroke();
       }
+      const nExt=TF_EXT[tf]||0;
+      const totalSegs=3+nExt;  // max look-back = idx-totalSegs
       for(const[aN] of items){
         const tr=TRAIL[aN];if(!tr)continue;
         const clr=tr[0];
-        const p0=posAt(idx,aN),p1=posAt(idx-1,aN),p2=posAt(idx-2,aN),p3=posAt(idx-3,aN);
-        // Draw oldest → newest so newer segments render on top
-        if(idx>=3)drawSeg(p3,p2,clr,tr[3],0.50);  // n-3 → n-2: 50% width (was 25%)
-        if(idx>=2)drawSeg(p2,p1,clr,tr[2],0.50);  // n-2 → n-1: 50% width
-        drawSeg(p1,p0,clr,tr[1],0.75);            // n-1 → n:   75% width
+        // Cache positions for all needed frames
+        const pos=[];for(let k=0;k<=totalSegs;k++)pos.push(posAt(idx-k,aN));
+        // Draw oldest → newest so newer (thicker+opaque) segments render on top.
+        // Extensions first (all use 3rd-segment spec: width 0.50, alpha tr[3])
+        for(let k=totalSegs;k>=4;k--){
+          if(idx>=k)drawSeg(pos[k],pos[k-1],clr,tr[3],0.50);
+        }
+        // Then 3 base segments
+        if(idx>=3)drawSeg(pos[3],pos[2],clr,tr[3],0.50);  // n-3 → n-2
+        if(idx>=2)drawSeg(pos[2],pos[1],clr,tr[2],0.50);  // n-2 → n-1
+        drawSeg(pos[1],pos[0],clr,tr[1],0.75);            // n-1 → n
       }
       ctx.lineWidth=1;
     }
