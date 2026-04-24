@@ -485,7 +485,7 @@ function animateIndicator(asset){
 const STATE_ROW_H=[20/15,16/15,16/15,8/15,8/15,16/15,16/15,20/15];  // sum=8
 const STATE_TOTAL=8;
 
-function drawStateMap(data){
+function drawStateMap(data,idx){
   if(!data)return;
   const cv=document.getElementById('stateMap');
   if(!cv)return;
@@ -634,7 +634,48 @@ function drawStateMap(data){
     ctx.textAlign='center';
     ctx.fillText('RSI',tx+tW/2,tP+tH+12);
 
-    const items=[['Gold','gold'],['Bitcoin','btc'],['XAUBTC','xb']];
+    const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1']];
+
+    // Draw trails (n-2 → n-1 at 25% alpha, n-1 → n at 50% alpha) per asset
+    // Lookups go against window._stateMapFrames (same source as data arg).
+    const framesArr=window._stateMapFrames||[];
+    if(typeof idx==='number'&&idx>=1){
+      function posAt(fi,aN){
+        if(fi<0||fi>=framesArr.length)return null;
+        const f=framesArr[fi];
+        if(!f||!f[aN]||!f[aN][tf])return null;
+        const st=f[aN][tf],r=s2r(st.S,st.M,st.L);
+        const rv=Math.max(30,Math.min(70,st.rsi));
+        return {ix:tx+((rv-30)/40)*tW,iy:rowCY(r)};
+      }
+      for(const[aN,,trailClr] of items){
+        const cur=posAt(idx,aN),p1=posAt(idx-1,aN);
+        // segment n-1 → n  (50% alpha)
+        if(cur&&p1){
+          ctx.strokeStyle=trailClr+'80';
+          ctx.lineWidth=2;
+          ctx.lineCap='round';
+          ctx.beginPath();
+          ctx.moveTo(p1.ix,p1.iy);
+          ctx.lineTo(cur.ix,cur.iy);
+          ctx.stroke();
+        }
+        // segment n-2 → n-1  (25% alpha)
+        if(idx>=2){
+          const p2=posAt(idx-2,aN);
+          if(p1&&p2){
+            ctx.strokeStyle=trailClr+'40';
+            ctx.lineWidth=2;
+            ctx.beginPath();
+            ctx.moveTo(p2.ix,p2.iy);
+            ctx.lineTo(p1.ix,p1.iy);
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.lineWidth=1;
+    }
+
     for(const[aN,aT] of items){
       const d=data[aN];
       if(!d||!d[tf])continue;
@@ -724,7 +765,7 @@ function renderStateMapFrame(idx){
   // Build payload: drop 'ts' key, pass {asset: {tf: {...}}}
   const payload={};
   for(const k of Object.keys(f)){if(k!=='ts')payload[k]=f[k];}
-  drawStateMap(payload);
+  drawStateMap(payload,idx);
   const ts=document.getElementById('stateMapTs');
   if(ts)ts.textContent=f.ts;
   const prog=document.getElementById('stateMapProg');
