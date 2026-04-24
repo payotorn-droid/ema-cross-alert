@@ -663,7 +663,8 @@ function drawStateMap(data,idx){
         XAUBTC:  ['#6366f1','80','40','26'],
       };
       // How many extra extension segments per TF (beyond the 3 base)
-      const TF_EXT={'15m':0,'30m':0,'1h':1,'4h':2,'1d':3};
+      // 1h adds 1, 4h adds 100 (≈half the timeline), 1d adds 200 (full timeline worth of trail)
+      const TF_EXT={'15m':0,'30m':0,'1h':1,'4h':100,'1d':200};
       function drawSeg(a,b,clr,alphaHex,widthFrac){
         if(!a||!b)return;
         ctx.strokeStyle=clr+alphaHex;
