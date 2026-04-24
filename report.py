@@ -480,8 +480,9 @@ function animateIndicator(asset){
 
 // Row heights: [LGG-SG, LGG-SD, LGD-SG, LGD-SD, LDG-SG, LDG-SD, LDD-SG, LDD-SD]
 // Order: row index r8 = (L==D)*4 + (M==D)*2 + (S==D)
-// Heights derived from rule: parent 1.5x/0.5x; S=G in M=G gets 1.5x of parent M.
-const STATE_ROW_H=[2.25,0.75,0.75,0.25,0.25,0.75,0.75,2.25];  // sum=8
+// Row heights per user formula: S = 4*1/3 | 4*2/3*2/5 | 4*2/3*2/5 | 4*2/3*1/5 | ... (sum=8)
+// In fractions of 15: [20, 16, 16, 8, 8, 16, 16, 20]/15
+const STATE_ROW_H=[20/15,16/15,16/15,8/15,8/15,16/15,16/15,20/15];  // sum=8
 const STATE_TOTAL=8;
 
 function drawStateMap(data){
