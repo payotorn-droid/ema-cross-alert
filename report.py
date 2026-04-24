@@ -17,7 +17,11 @@ ALERT_TO = "payotorn@gmail.com"
 MAX_ROWS = 200
 LOOKBACK_DAYS = 30
 MIN_EMAIL_GAP = 60
-ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC"}
+# ASSETS: all assets with data pipeline
+# MAIN_ASSETS: subset shown in indicator panels, tables, and email alerts
+# Assets in ASSETS but not MAIN_ASSETS appear only in the state map
+ASSETS = {"Gold": "GC=F", "Bitcoin": "BTC-USD", "XAUBTC": "XAUBTC", "SPY": "SPY"}
+MAIN_ASSETS = ["Gold", "Bitcoin", "XAUBTC"]
 EMA_PAIRS = [(12, 26, "S"), (20, 50, "M"), (50, 200, "L")]
 INTERVALS = ["15m", "30m", "1h", "4h", "1d"]
 LABEL_FULL = {"S": "Short 12/26", "M": "Mid 20/50", "L": "Long 50/200"}
@@ -311,6 +315,9 @@ def build_state_map_html(frames):
   <button class="sm-legend-pill active" data-asset="XAUBTC">
     <span class="sm-legend-swatch sm-sw-xb">X/B</span>XAU/BTC
   </button>
+  <button class="sm-legend-pill active" data-asset="SPY">
+    <span class="sm-legend-swatch sm-sw-spy"></span>SPY
+  </button>
 </div>'''
     if not frames:
         return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
@@ -500,7 +507,7 @@ const STATE_TOTAL=8;
 // Animation always advances; drawing skips assets that are off.
 // Re-enabling shows trail continuously (no reset) since we always look up
 // past frames from the global frame array.
-window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:true};
+window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:true,SPY:true};
 
 function drawStateMap(data,idx){
   if(!data)return;
@@ -651,7 +658,7 @@ function drawStateMap(data,idx){
     ctx.textAlign='center';
     ctx.fillText('RSI',tx+tW/2,tP+tH+12);
 
-    const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1']];
+    const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1'],['SPY','spy','#991b1b']];
 
     // Draw trails (meteor-tail). Base 3 tapered segments for all TFs:
     //   n-1 → n (75% width, alpha1),  n-2 → n-1 (50%, alpha2),  n-3 → n-2 (50%, alpha3)
@@ -663,6 +670,7 @@ function drawStateMap(data,idx){
     //   Gold    #92400e  80/40/26 (50/25/15%)
     //   Bitcoin #d97706  90/60/4d (57/38/30%)
     //   XAUBTC  #6366f1  80/40/26 (50/25/15%)
+    //   SPY     #991b1b  80/40/26 (50/25/15%)
     const framesArr=window._stateMapFrames||[];
     if(typeof idx==='number'&&idx>=1){
       function posAt(fi,aN){
@@ -678,6 +686,7 @@ function drawStateMap(data,idx){
         Gold:    ['#92400e','80','40','26'],
         Bitcoin: ['#d97706','90','60','4d'],
         XAUBTC:  ['#6366f1','80','40','26'],
+        SPY:     ['#991b1b','80','40','26'],
       };
       // How many extra extension segments per TF (beyond the 3 base)
       // 1h adds 1, 4h adds 50, 1d adds 200 (full timeline worth of trail)
@@ -719,6 +728,17 @@ function drawStateMap(data,idx){
       if(!d||!d[tf])continue;
       const s=d[tf],r8=s2r(s.S,s.M,s.L),iy=rowCY(r8),rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;
       if(aT==='gold')dGB(ix,iy,14,9);
+      else if(aT==='spy'){
+        // SPDR-inspired concentric rings: red outer, white ring, red core dot
+        ctx.beginPath();ctx.arc(ix,iy,7,0,Math.PI*2);
+        ctx.fillStyle='#dc2626';ctx.fill();
+        ctx.strokeStyle='#7f1d1d';ctx.lineWidth=0.8;ctx.stroke();
+        ctx.beginPath();ctx.arc(ix,iy,4.5,0,Math.PI*2);
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.3;ctx.stroke();
+        ctx.beginPath();ctx.arc(ix,iy,2,0,Math.PI*2);
+        ctx.fillStyle='#fff';ctx.fill();
+        ctx.strokeStyle='#7f1d1d';ctx.lineWidth=0.5;ctx.stroke();
+      }
       else{
         const clr=aT==='btc'?'#f7931a':'#6366f1',lbl=aT==='btc'?'₿':'X/B',fs=aT==='btc'?'700 8px sans-serif':'700 5px sans-serif';
         ctx.beginPath();
@@ -952,6 +972,7 @@ body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--t
 .sm-sw-gold{{background:linear-gradient(135deg,#fde68a 0%,#f59e0b 40%,#d97706 70%,#92400e 100%);border:1px solid #78350f;border-radius:3px;width:14px;height:10px;}}
 .sm-sw-btc{{background:#f7931a;border:1px solid #333;}}
 .sm-sw-xb{{background:#6366f1;border:1px solid #333;font-size:6px;}}
+.sm-sw-spy{{background:radial-gradient(circle,#fff 0%,#fff 20%,#dc2626 30%,#dc2626 60%,#fff 60%,#fff 70%,#dc2626 70%,#dc2626 100%);border:1px solid #7f1d1d;}}
 .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
 .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
 .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
@@ -1142,17 +1163,23 @@ if __name__ == "__main__":
         all_events = collect_events(asset_name)
         rsi_data = collect_rsi(asset_name)
         asset_data[asset_name] = {"events": all_events, "rsi": rsi_data}
-        sections.append(build_table_html(asset_name, all_events, rsi_data))
-        asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
-        print(f"  {asset_name}: {asset_states[asset_name]}")
-        last_4h = find_last_4h_cross(all_events)
-        ecut = last_4h if last_4h else now - timedelta(hours=4)
-        for (ds, tm), ev in all_events.items():
-            if pd.Timestamp(f"{ds} {tm}") < ecut: continue
-            for iv, pairs in ev["crosses"].items():
-                for lb, cr in pairs.items():
-                    ek = event_key(asset_name, ds, tm, iv, lb, cr)
-                    all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
+        if asset_name in MAIN_ASSETS:
+            # Indicator panel, table, state badge, email alerts only for main assets
+            sections.append(build_table_html(asset_name, all_events, rsi_data))
+            asset_states[asset_name] = analyze_market_state(all_events, rsi_data)
+            print(f"  {asset_name}: {asset_states[asset_name]}")
+            last_4h = find_last_4h_cross(all_events)
+            ecut = last_4h if last_4h else now - timedelta(hours=4)
+            for (ds, tm), ev in all_events.items():
+                if pd.Timestamp(f"{ds} {tm}") < ecut: continue
+                for iv, pairs in ev["crosses"].items():
+                    for lb, cr in pairs.items():
+                        ek = event_key(asset_name, ds, tm, iv, lb, cr)
+                        all_new_evs.append({"asset": asset_name, "date": ds, "time": tm, "interval": iv, "label": lb, "label_full": LABEL_FULL.get(lb, lb), "cross": cr, "price": ev["price"], "event_key": ek})
+        else:
+            # State-map-only asset: just log current state for visibility
+            st = analyze_market_state(all_events, rsi_data)
+            print(f"  {asset_name} (state map only): {st}")
 
     # Build state map with animation timeline aligned to indicator (same N as MAX_ROWS)
     frames = build_state_timeline_frames(asset_data, N=MAX_ROWS)

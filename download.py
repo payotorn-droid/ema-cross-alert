@@ -15,6 +15,7 @@ STATE_FILE = os.path.join(DATA_DIR, "download_state.json")
 ASSETS = {
     "Gold":    "GC=F",
     "Bitcoin": "BTC-USD",
+    "SPY":     "SPY",
 }
 
 INTERVAL_CONFIG = {
