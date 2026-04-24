@@ -286,10 +286,25 @@ def build_state_timeline_frames(asset_data, N=50):
 
 def build_state_map_html(frames):
     import json as _j
+    controls = '''<div class="state-map-controls">
+  <button class="sm-btn" id="smStepBack10" title="-10 frames">⏮</button>
+  <button class="sm-btn" id="smStepBack" title="-1 frame">◀</button>
+  <button class="sm-btn sm-play" id="smPlayBtn" title="Play/Pause (Space)">⏸</button>
+  <button class="sm-btn" id="smStepFwd" title="+1 frame">▶</button>
+  <button class="sm-btn" id="smStepFwd10" title="+10 frames">⏭</button>
+  <span class="sm-frame-count" id="stateMapFrameCount">1 / 0</span>
+  <span class="sm-speed-sep">·</span>
+  <span class="sm-speed-label">Speed</span>
+  <button class="sm-speed-btn active" data-speed="1">1x</button>
+  <button class="sm-speed-btn" data-speed="0.5">0.5x</button>
+  <button class="sm-speed-btn" data-speed="0.25">0.25x</button>
+  <button class="sm-speed-btn" data-speed="0.1">0.1x</button>
+  <button class="sm-speed-btn" data-speed="0.05">0.05x</button>
+</div>'''
     if not frames:
-        return '<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div></div><script>window._stateMapFrames=[];</script>'
+        return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
     latest_ts = frames[-1]["ts"]
-    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div></div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
+    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
 
 def build_table_html(asset_name, all_events, rsi_data=None):
     ne = len(EMA_PAIRS)
@@ -469,9 +484,6 @@ function animateIndicator(asset){
 const STATE_ROW_H=[2.25,0.75,0.75,0.25,0.25,0.75,0.75,2.25];  // sum=8
 const STATE_TOTAL=8;
 
-// Selected timeframe for speed control (null = uniform 8s cycle)
-window._selectedTf=window._selectedTf||null;
-
 function drawStateMap(data){
   if(!data)return;
   const cv=document.getElementById('stateMap');
@@ -552,15 +564,11 @@ function drawStateMap(data){
     ctx.stroke();
   }
 
-  // Store hit regions for click detection (rebuilt each draw)
-  window._stateMapHitRegions=[];
-
   for(let t=0;t<5;t++){
     const tx=sX+t*(tW+gap),tf=tfs[t];
-    window._stateMapHitRegions.push({tf,x:tx,y:tP,w:tW,h:tH});
 
     ctx.font='700 11px sans-serif';
-    ctx.fillStyle=(window._selectedTf===tf)?'#ea580c':'#1d4ed8';
+    ctx.fillStyle='#1d4ed8';
     ctx.textAlign='center';
     ctx.fillText(tf,tx+tW/2,16);
     ctx.font='500 9px sans-serif';
@@ -611,16 +619,10 @@ function drawStateMap(data){
       ctx.stroke();
     }
 
-    // Outer border (highlight if selected)
-    if(window._selectedTf===tf){
-      ctx.strokeStyle='#ea580c';
-      ctx.lineWidth=2.5;
-    }else{
-      ctx.strokeStyle='#aaa';
-      ctx.lineWidth=1;
-    }
-    ctx.strokeRect(tx,tP,tW,tH);
+    // Outer border
+    ctx.strokeStyle='#aaa';
     ctx.lineWidth=1;
+    ctx.strokeRect(tx,tP,tW,tH);
 
     ctx.font='400 8px sans-serif';
     ctx.fillStyle='#aaa';
@@ -695,94 +697,136 @@ function drawStateMap(data){
   ctx.fillText('XAU/BTC',lx+10,ly+1);
 }
 
-// Speed ratios (relative to 1d): 15m:30m:1h:4h:1d = 28:16:8:6:1
-// i.e. 1d is slowest (1x), 15m is fastest (28x cycles per 1d cycle)
-// When a TF is selected, it runs at 3 sec/cycle; others scale proportionally.
-const TF_CYCLE_RATIO={'15m':28,'30m':16,'1h':8,'4h':6,'1d':1};
+// ───── State map video-player controller ─────
+// Single master animation: all TFs advance together. User controls via UI:
+// play/pause, step ±1/±10, speed select. End of cycle = 2 sec pause then loop.
+const SPEED_OPTIONS=[
+  {label:'1x',   val:1.0},
+  {label:'0.5x', val:0.5},
+  {label:'0.25x',val:0.25},
+  {label:'0.1x', val:0.1},
+  {label:'0.05x',val:0.05},
+];
+const BASE_FRAME_MS=40;  // 1x speed = 40ms/frame (25 fps)
+const END_PAUSE_MS=2000; // pause at end of cycle before restarting
 
-function computeCycleDur(){
-  // Returns {tf: cycleMs} map. Default (no selection): all 8000ms.
-  const sel=window._selectedTf;
-  if(!sel)return {'15m':8000,'30m':8000,'1h':8000,'4h':8000,'1d':8000};
-  // Selected TF = 3000ms. Others: cycleMs_tf = 3000 * (ratio_sel / ratio_tf)
-  const r=TF_CYCLE_RATIO;
-  const out={};
-  for(const tf of ['15m','30m','1h','4h','1d']){
-    out[tf]=3000*(r[sel]/r[tf]);
-  }
-  return out;
+window._smIdx=0;          // current frame index
+window._smPlaying=true;    // play state
+window._smSpeed=1.0;       // speed multiplier
+window._smLastTick=0;      // timestamp of last frame advance
+window._smPauseUntil=0;    // if >0, waiting at end-of-cycle until this timestamp
+
+function renderStateMapFrame(idx){
+  const frames=window._stateMapFrames;
+  if(!frames||!frames.length)return;
+  const f=frames[idx];
+  // Build payload: drop 'ts' key, pass {asset: {tf: {...}}}
+  const payload={};
+  for(const k of Object.keys(f)){if(k!=='ts')payload[k]=f[k];}
+  drawStateMap(payload);
+  const ts=document.getElementById('stateMapTs');
+  if(ts)ts.textContent=f.ts;
+  const prog=document.getElementById('stateMapProg');
+  if(prog)prog.style.width=((idx+1)/frames.length*100)+'%';
+  const fc=document.getElementById('stateMapFrameCount');
+  if(fc)fc.textContent=(idx+1)+' / '+frames.length;
 }
-
-// Per-TF frame index state (each TF advances at its own pace)
-window._stateMapTfIdx={'15m':0,'30m':0,'1h':0,'4h':0,'1d':0};
-window._stateMapTfLastTick={'15m':0,'30m':0,'1h':0,'4h':0,'1d':0};
-window._stateMapAnimId=null;
 
 function animateStateMap(){
   const frames=window._stateMapFrames;
   if(!frames||!frames.length)return;
-  const N=frames.length,tfs=['15m','30m','1h','4h','1d'];
+  const N=frames.length;
 
   function step(now){
-    const cycle=computeCycleDur();
-    // Advance each TF's index independently based on its cycle duration
-    for(const tf of tfs){
-      const frameMs=cycle[tf]/N;
-      if(!window._stateMapTfLastTick[tf])window._stateMapTfLastTick[tf]=now;
-      if(now-window._stateMapTfLastTick[tf]>=frameMs){
-        window._stateMapTfIdx[tf]=(window._stateMapTfIdx[tf]+1)%N;
-        window._stateMapTfLastTick[tf]=now;
+    if(window._smPlaying){
+      if(window._smPauseUntil>0){
+        // End-of-cycle pause
+        if(now>=window._smPauseUntil){
+          window._smPauseUntil=0;
+          window._smIdx=0;
+          window._smLastTick=now;
+          renderStateMapFrame(0);
+        }
+      }else{
+        const frameMs=BASE_FRAME_MS/window._smSpeed;
+        if(!window._smLastTick)window._smLastTick=now;
+        while(now-window._smLastTick>=frameMs&&window._smPauseUntil===0){
+          window._smIdx++;
+          window._smLastTick+=frameMs;
+          if(window._smIdx>=N){
+            // Reached end — show last frame, trigger 2s pause
+            window._smIdx=N-1;
+            renderStateMapFrame(N-1);
+            window._smPauseUntil=now+END_PAUSE_MS;
+            break;
+          }
+          renderStateMapFrame(window._smIdx);
+        }
       }
     }
-
-    // Build composite payload: for each asset, use the frame at each TF's own idx
-    const payload={};
-    for(const an of ['Gold','Bitcoin','XAUBTC']){
-      payload[an]={};
-      for(const tf of tfs){
-        const f=frames[window._stateMapTfIdx[tf]];
-        if(f&&f[an]&&f[an][tf])payload[an][tf]=f[an][tf];
-      }
-    }
-    drawStateMap(payload);
-
-    // Timestamp/progress show the slowest-moving TF when a TF is selected,
-    // else the master timeline (Gold, same as all).
-    const refTf=window._selectedTf||'1d';
-    const refIdx=window._stateMapTfIdx[refTf];
-    const refFrame=frames[refIdx];
-    const ts=document.getElementById('stateMapTs');
-    if(ts&&refFrame)ts.textContent=refFrame.ts+(window._selectedTf?' · ref '+refTf:'');
-    const prog=document.getElementById('stateMapProg');
-    if(prog)prog.style.width=((refIdx+1)/N*100)+'%';
-
-    window._stateMapAnimId=requestAnimationFrame(step);
+    requestAnimationFrame(step);
   }
-  window._stateMapAnimId=requestAnimationFrame(step);
+  // Initial render + start loop
+  renderStateMapFrame(0);
+  requestAnimationFrame(step);
 }
 
-// Click handler: detect which TF box was clicked, toggle selection
-function setupStateMapClick(){
-  const cv=document.getElementById('stateMap');
-  if(!cv)return;
-  cv.style.cursor='pointer';
-  cv.addEventListener('click',e=>{
-    const rect=cv.getBoundingClientRect();
-    const scaleX=cv.width/rect.width,scaleY=cv.height/rect.height;
-    const cx=(e.clientX-rect.left)*scaleX,cy=(e.clientY-rect.top)*scaleY;
-    const regs=window._stateMapHitRegions||[];
-    for(const r of regs){
-      if(cx>=r.x&&cx<=r.x+r.w&&cy>=r.y&&cy<=r.y+r.h){
-        // Toggle: click same tf again = deselect
-        window._selectedTf=(window._selectedTf===r.tf)?null:r.tf;
-        // Reset per-TF tick timers so new speeds start fresh
-        const now=performance.now();
-        for(const tf in window._stateMapTfLastTick)window._stateMapTfLastTick[tf]=now;
-        return;
-      }
+function smStep(delta){
+  const frames=window._stateMapFrames;
+  if(!frames||!frames.length)return;
+  const N=frames.length;
+  window._smPlaying=false;
+  window._smPauseUntil=0;
+  window._smIdx=Math.max(0,Math.min(N-1,window._smIdx+delta));
+  renderStateMapFrame(window._smIdx);
+  updatePlayBtn();
+}
+
+function smTogglePlay(){
+  window._smPlaying=!window._smPlaying;
+  if(window._smPlaying){
+    window._smLastTick=performance.now();
+    // If at last frame, restart from beginning
+    const N=(window._stateMapFrames||[]).length;
+    if(window._smIdx>=N-1){
+      window._smIdx=0;
+      window._smPauseUntil=0;
+      renderStateMapFrame(0);
     }
-    // Clicked outside any TF grid = deselect
-    window._selectedTf=null;
+  }
+  updatePlayBtn();
+}
+
+function updatePlayBtn(){
+  const b=document.getElementById('smPlayBtn');
+  if(b)b.textContent=window._smPlaying?'⏸':'▶';
+}
+
+function smSetSpeed(v){
+  window._smSpeed=v;
+  window._smLastTick=performance.now();
+  document.querySelectorAll('.sm-speed-btn').forEach(btn=>{
+    btn.classList.toggle('active',parseFloat(btn.dataset.speed)===v);
+  });
+}
+
+function setupStateMapControls(){
+  const b=id=>document.getElementById(id);
+  const p=b('smPlayBtn');     if(p)p.addEventListener('click',smTogglePlay);
+  const s1=b('smStepBack');   if(s1)s1.addEventListener('click',()=>smStep(-1));
+  const s2=b('smStepFwd');    if(s2)s2.addEventListener('click',()=>smStep(1));
+  const s10=b('smStepBack10');if(s10)s10.addEventListener('click',()=>smStep(-10));
+  const sf10=b('smStepFwd10');if(sf10)sf10.addEventListener('click',()=>smStep(10));
+  document.querySelectorAll('.sm-speed-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>smSetSpeed(parseFloat(btn.dataset.speed)));
+  });
+  // Keyboard shortcuts — only when state map is in viewport
+  document.addEventListener('keydown',e=>{
+    // Ignore when typing in inputs/textareas
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+    if(e.code==='Space'){e.preventDefault();smTogglePlay();}
+    else if(e.code==='ArrowLeft'){e.preventDefault();smStep(-1);}
+    else if(e.code==='ArrowRight'){e.preventDefault();smStep(1);}
   });
 }
 
@@ -804,7 +848,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   tick();
   setInterval(tick,1000);
   ['Gold','Bitcoin','XAUBTC'].forEach(animateIndicator);
-  setupStateMapClick();
+  setupStateMapControls();
   animateStateMap();
 });
 """
@@ -834,7 +878,17 @@ body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--t
 .state-map-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;}}
 .state-map-ts{{font-size:9px;color:var(--text3);font-weight:700;font-family:monospace;white-space:nowrap;}}
 .state-map-progress{{height:2px;background:var(--border);border-radius:1px;overflow:hidden;margin-top:4px;}}
-.state-map-progress-fill{{height:100%;background:var(--gold);width:0%;transition:width .3s linear;}}
+.state-map-progress-fill{{height:100%;background:var(--gold);width:0%;}}
+.state-map-controls{{display:flex;align-items:center;gap:4px;margin-top:6px;flex-wrap:wrap;font-size:10px;}}
+.sm-btn{{background:var(--tog-bg);border:1px solid var(--border2);border-radius:4px;padding:2px 7px;font-size:11px;color:var(--text2);cursor:pointer;min-width:24px;line-height:1.4;transition:all .15s;}}
+.sm-btn:hover{{border-color:var(--gold);color:var(--gold);}}
+.sm-btn.sm-play{{min-width:30px;font-weight:700;}}
+.sm-frame-count{{font-size:10px;color:var(--text3);font-family:monospace;font-weight:700;margin-left:4px;min-width:54px;text-align:center;}}
+.sm-speed-sep{{color:var(--text4);margin:0 2px;}}
+.sm-speed-label{{font-size:9px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.5px;}}
+.sm-speed-btn{{background:var(--tog-bg);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:10px;color:var(--text2);cursor:pointer;font-family:monospace;font-weight:700;transition:all .15s;}}
+.sm-speed-btn:hover{{border-color:var(--gold);color:var(--gold);}}
+.sm-speed-btn.active{{background:var(--gold);color:var(--bg);border-color:var(--gold);}}
 .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
 .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
 .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
