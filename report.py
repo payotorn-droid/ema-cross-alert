@@ -301,10 +301,21 @@ def build_state_map_html(frames):
   <button class="sm-speed-btn" data-speed="0.1">0.1x</button>
   <button class="sm-speed-btn" data-speed="0.05">0.05x</button>
 </div>'''
+    legend = '''<div class="state-map-legend">
+  <button class="sm-legend-pill active" data-asset="Gold">
+    <span class="sm-legend-swatch sm-sw-gold"></span>Gold
+  </button>
+  <button class="sm-legend-pill active" data-asset="Bitcoin">
+    <span class="sm-legend-swatch sm-sw-btc">₿</span>Bitcoin
+  </button>
+  <button class="sm-legend-pill active" data-asset="XAUBTC">
+    <span class="sm-legend-swatch sm-sw-xb">X/B</span>XAU/BTC
+  </button>
+</div>'''
     if not frames:
-        return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
+        return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
     latest_ts = frames[-1]["ts"]
-    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="380" style="max-width:100%;"></canvas><div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
+    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
 
 def build_table_html(asset_name, all_events, rsi_data=None):
     ne = len(EMA_PAIRS)
@@ -484,6 +495,12 @@ function animateIndicator(asset){
 // In fractions of 15: [20, 16, 16, 8, 8, 16, 16, 20]/15
 const STATE_ROW_H=[20/15,16/15,16/15,8/15,8/15,16/15,16/15,20/15];  // sum=8
 const STATE_TOTAL=8;
+
+// Per-asset visibility toggle. Updated by HTML legend click handlers.
+// Animation always advances; drawing skips assets that are off.
+// Re-enabling shows trail continuously (no reset) since we always look up
+// past frames from the global frame array.
+window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:true};
 
 function drawStateMap(data,idx){
   if(!data)return;
@@ -678,6 +695,7 @@ function drawStateMap(data,idx){
       const nExt=TF_EXT[tf]||0;
       const totalSegs=3+nExt;  // max look-back = idx-totalSegs
       for(const[aN] of items){
+        if(!window._smAssetOn[aN])continue;  // Hidden asset: skip trail
         const tr=TRAIL[aN];if(!tr)continue;
         const clr=tr[0];
         // Cache positions for all needed frames
@@ -696,6 +714,7 @@ function drawStateMap(data,idx){
     }
 
     for(const[aN,aT] of items){
+      if(!window._smAssetOn[aN])continue;  // Hidden asset: skip icon
       const d=data[aN];
       if(!d||!d[tf])continue;
       const s=d[tf],r8=s2r(s.S,s.M,s.L),iy=rowCY(r8),rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;
@@ -721,41 +740,6 @@ function drawStateMap(data,idx){
     }
   }
 
-  // Legend — drawn once, outside the timeframe loop.
-  const ly=tP+tH+28;
-  let lx=sX+20;
-  dGB(lx,ly,14,9);
-  ctx.font='400 10px sans-serif';
-  ctx.fillStyle='#666';
-  ctx.textAlign='left';
-  ctx.fillText('Gold',lx+12,ly+1);
-  lx+=70;
-  ctx.beginPath();
-  ctx.arc(lx,ly,6,0,Math.PI*2);
-  ctx.fillStyle='#f7931a';
-  ctx.fill();
-  ctx.font='700 7px sans-serif';
-  ctx.fillStyle='#fff';
-  ctx.textAlign='center';
-  ctx.textBaseline='middle';
-  ctx.fillText('₿',lx,ly);
-  ctx.font='400 10px sans-serif';
-  ctx.fillStyle='#666';
-  ctx.textAlign='left';
-  ctx.fillText('Bitcoin',lx+10,ly+1);
-  lx+=80;
-  ctx.beginPath();
-  ctx.arc(lx,ly,6,0,Math.PI*2);
-  ctx.fillStyle='#6366f1';
-  ctx.fill();
-  ctx.font='700 5px sans-serif';
-  ctx.fillStyle='#fff';
-  ctx.textAlign='center';
-  ctx.fillText('X/B',lx,ly);
-  ctx.font='400 10px sans-serif';
-  ctx.fillStyle='#666';
-  ctx.textAlign='left';
-  ctx.fillText('XAU/BTC',lx+10,ly+1);
 }
 
 // ───── State map video-player controller ─────
@@ -881,6 +865,16 @@ function setupStateMapControls(){
   document.querySelectorAll('.sm-speed-btn').forEach(btn=>{
     btn.addEventListener('click',()=>smSetSpeed(parseFloat(btn.dataset.speed)));
   });
+  // Legend toggle pills
+  document.querySelectorAll('.sm-legend-pill').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const a=btn.dataset.asset;
+      window._smAssetOn[a]=!window._smAssetOn[a];
+      btn.classList.toggle('active',window._smAssetOn[a]);
+      // Redraw current frame immediately so change is visible even when paused
+      renderStateMapFrame(window._smIdx);
+    });
+  });
   // Keyboard shortcuts — only when state map is in viewport
   document.addEventListener('keydown',e=>{
     // Ignore when typing in inputs/textareas
@@ -950,6 +944,14 @@ body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--t
 .sm-speed-btn{{background:var(--tog-bg);border:1px solid var(--border2);border-radius:4px;padding:2px 6px;font-size:10px;color:var(--text2);cursor:pointer;font-family:monospace;font-weight:700;transition:all .15s;}}
 .sm-speed-btn:hover{{border-color:var(--gold);color:var(--gold);}}
 .sm-speed-btn.active{{background:var(--gold);color:var(--bg);border-color:var(--gold);}}
+.state-map-legend{{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}}
+.sm-legend-pill{{display:inline-flex;align-items:center;gap:5px;background:var(--tog-bg);border:1px solid var(--border2);border-radius:14px;padding:3px 10px 3px 4px;font-size:10px;font-weight:700;color:var(--text3);cursor:pointer;transition:all .15s;opacity:.45;}}
+.sm-legend-pill:hover{{border-color:var(--gold);color:var(--gold);}}
+.sm-legend-pill.active{{opacity:1;color:var(--text2);border-color:var(--border2);}}
+.sm-legend-swatch{{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;font-size:9px;color:#fff;font-weight:700;}}
+.sm-sw-gold{{background:linear-gradient(135deg,#fde68a 0%,#f59e0b 40%,#d97706 70%,#92400e 100%);border:1px solid #78350f;border-radius:3px;width:14px;height:10px;}}
+.sm-sw-btc{{background:#f7931a;border:1px solid #333;}}
+.sm-sw-xb{{background:#6366f1;border:1px solid #333;font-size:6px;}}
 .ind-heatmap-wrap{{display:inline-flex;flex-direction:column;gap:6px;margin-bottom:8px;}}
 .indicator-box{{display:inline-flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);min-width:240px;}}
 .heatmap-box{{padding:6px 8px;border-radius:8px;background:var(--bg2);border:1.5px solid var(--border2);display:inline-block;}}
