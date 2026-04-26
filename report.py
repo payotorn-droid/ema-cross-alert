@@ -235,8 +235,10 @@ def build_full_heatmap_html(asset_name, all_events, years=4):
     return f"""<div class="modal-overlay" id="modal-{asset_name}" onclick="if(event.target===this)closeModal('{asset_name}')"><div class="modal-content"><div class="modal-header"><div class="modal-title">{asset_name} · Full Heatmap · {rows} events · {fd} → {ld}</div><button class="modal-close" onclick="closeModal('{asset_name}')">×</button></div><div class="modal-body"><svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">{rects}</svg></div></div></div>"""
 
 def build_state_timeline_frames(asset_data, N=50):
-    """Build N-frame timeline: state of all assets at each Gold cross timestamp.
-    Uses Gold as master clock; queries other assets via asof-style running state.
+    """Build N-frame timeline: state of all assets at each BTC cross timestamp.
+    BTC is the master clock (24/7 trading) — produces continuous timeline with no gaps
+    even when traditional markets (Gold, SPY) are closed.
+    Other assets carry forward their last known state at each BTC pivot.
     """
     # Precompute running cross-state snapshots per asset (tuples sorted by time)
     running = {}
@@ -252,11 +254,11 @@ def build_state_timeline_frames(asset_data, N=50):
             snapshots.append((pd.Timestamp(f"{key[0]} {key[1]}"), dict(cs)))
         running[asset] = snapshots
 
-    # Master timeline = last N Gold cross timestamps
-    gold_events = asset_data.get("Gold", {}).get("events", {})
-    sorted_gold = sorted(gold_events.keys())
-    if not sorted_gold: return []
-    pivots = sorted_gold[-N:]
+    # Master timeline = last N BTC cross timestamps (24/7 → no market-closed gaps)
+    btc_events = asset_data.get("Bitcoin", {}).get("events", {})
+    sorted_btc = sorted(btc_events.keys())
+    if not sorted_btc: return []
+    pivots = sorted_btc[-N:]
 
     frames = []
     for (d, t) in pivots:
@@ -312,16 +314,16 @@ def build_state_map_html(frames):
   <button class="sm-legend-pill active" data-asset="Bitcoin">
     <span class="sm-legend-swatch sm-sw-btc">₿</span>Bitcoin
   </button>
-  <button class="sm-legend-pill active" data-asset="XAUBTC">
+  <button class="sm-legend-pill" data-asset="XAUBTC">
     <span class="sm-legend-swatch sm-sw-xb">X/B</span>XAU/BTC
   </button>
-  <button class="sm-legend-pill active" data-asset="SPY">
+  <button class="sm-legend-pill" data-asset="SPY">
     <span class="sm-legend-swatch sm-sw-spy"></span>SPY
   </button>
-  <button class="sm-legend-pill active" data-asset="QQQ">
+  <button class="sm-legend-pill" data-asset="QQQ">
     <span class="sm-legend-swatch sm-sw-qqq">Q</span>QQQ
   </button>
-  <button class="sm-legend-pill active" data-asset="DXY">
+  <button class="sm-legend-pill" data-asset="DXY">
     <span class="sm-legend-swatch sm-sw-dxy">$</span>DXY
   </button>
 </div>'''
@@ -510,10 +512,11 @@ const STATE_ROW_H=[20/15,16/15,16/15,8/15,8/15,16/15,16/15,20/15];  // sum=8
 const STATE_TOTAL=8;
 
 // Per-asset visibility toggle. Updated by HTML legend click handlers.
+// Default: only Gold + Bitcoin visible. Others (XAUBTC/SPY/QQQ/DXY) start off.
 // Animation always advances; drawing skips assets that are off.
 // Re-enabling shows trail continuously (no reset) since we always look up
 // past frames from the global frame array.
-window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:true,SPY:true,QQQ:true,DXY:true};
+window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:false,SPY:false,QQQ:false,DXY:false};
 
 function drawStateMap(data,idx){
   if(!data)return;
