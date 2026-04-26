@@ -670,19 +670,12 @@ function drawStateMap(data,idx){
 
     const items=[['Gold','gold','#92400e'],['Bitcoin','btc','#fbbf24'],['XAUBTC','xb','#6366f1'],['SPY','spy','#991b1b'],['QQQ','qqq','#1a6fc9'],['DXY','dxy','#15803d']];
 
-    // Draw trails (meteor-tail). Base 3 tapered segments for all TFs:
-    //   n-1 → n (75% width, alpha1),  n-2 → n-1 (50%, alpha2),  n-3 → n-2 (50%, alpha3)
-    // Higher TFs add constant-spec extensions equal to 3rd-segment spec:
-    //   1h adds 1 seg  (n-4 → n-3)
-    //   4h adds 2 segs (n-5 → n-4, n-4 → n-3)
-    //   1d adds 3 segs (n-6 → n-5, n-5 → n-4, n-4 → n-3)
+    // Draw trails (meteor-tail). Each asset's trail walks back through frames
+    // skipping frames where the asset's position (S,M,L,RSI → ix,iy) didn't change.
+    // → 10 ext + 3 base = up to 13 historical state changes per asset.
+    // BTC active 24/7 → trail tightly packed; Gold/SPY during market closure → trail
+    // walks further back to reach actual prior events (not frozen weekends).
     // Per-asset palette: [color, alpha_n1n, alpha_n2n1, alpha_n3n2_and_ext]
-    //   Gold    #92400e  80/40/26 (50/25/15%)
-    //   Bitcoin #d97706  90/60/4d (57/38/30%)
-    //   XAUBTC  #6366f1  80/40/26 (50/25/15%)
-    //   SPY     #991b1b  80/40/26 (50/25/15%)
-    //   QQQ     #1a6fc9  80/40/26 (50/25/15%)
-    //   DXY     #15803d  80/40/26 (50/25/15%)
     const framesArr=window._stateMapFrames||[];
     if(typeof idx==='number'&&idx>=1){
       function posAt(fi,aN){
@@ -693,6 +686,26 @@ function drawStateMap(data,idx){
         const rv=Math.max(30,Math.min(70,st.rsi));
         return {ix:tx+((rv-30)/40)*tW,iy:rowCY(r)};
       }
+      // Collect up to NEED unique-position frames walking back from idx.
+      // Returns array of {ix,iy} ordered newest→oldest. May be shorter than NEED
+      // if we run out of frames.
+      const NEED=13;  // 3 base + 10 ext
+      function collectTrail(aN){
+        const out=[];
+        const cur=posAt(idx,aN);
+        if(!cur)return out;
+        out.push(cur);
+        let last=cur;
+        for(let k=idx-1;k>=0&&out.length<NEED;k--){
+          const p=posAt(k,aN);
+          if(!p)continue;
+          if(p.ix!==last.ix||p.iy!==last.iy){
+            out.push(p);
+            last=p;
+          }
+        }
+        return out;
+      }
       const ICON=14;
       const TRAIL={
         Gold:    ['#92400e','80','40','26'],
@@ -702,8 +715,6 @@ function drawStateMap(data,idx){
         QQQ:     ['#1a6fc9','80','40','26'],
         DXY:     ['#15803d','80','40','26'],
       };
-      // How many extra extension segments per TF (beyond the 3 base) — uniform 20 = total 23 segs per TF
-      const TF_EXT={'15m':20,'30m':20,'1h':20,'4h':20,'1d':20};
       function drawSeg(a,b,clr,alphaHex,widthFrac){
         if(!a||!b)return;
         ctx.strokeStyle=clr+alphaHex;
@@ -714,23 +725,24 @@ function drawStateMap(data,idx){
         ctx.lineTo(b.ix,b.iy);
         ctx.stroke();
       }
-      const nExt=TF_EXT[tf]||0;
-      const totalSegs=3+nExt;  // max look-back = idx-totalSegs
       for(const[aN] of items){
         if(!window._smAssetOn[aN])continue;  // Hidden asset: skip trail
         const tr=TRAIL[aN];if(!tr)continue;
         const clr=tr[0];
-        // Cache positions for all needed frames
-        const pos=[];for(let k=0;k<=totalSegs;k++)pos.push(posAt(idx-k,aN));
-        // Draw oldest → newest so newer (thicker+opaque) segments render on top.
-        // Extensions first (all use 3rd-segment spec: width 0.50, alpha tr[3])
-        for(let k=totalSegs;k>=4;k--){
-          if(idx>=k)drawSeg(pos[k],pos[k-1],clr,tr[3],0.50);
+        const pts=collectTrail(aN);  // pts[0]=newest, pts[L-1]=oldest
+        // pts[k] connects to pts[k+1]; segment 0 is n→n-1 (75% width, alpha tr[1]),
+        // segment 1 is n-1→n-2 (50% width, alpha tr[2]),
+        // segment 2 is n-2→n-3 (50% width, alpha tr[3]),
+        // segments 3+ = extensions (50% width, alpha tr[3]).
+        // Draw oldest → newest so newer (thicker+opaque) renders on top.
+        for(let k=pts.length-2;k>=0;k--){
+          const a=pts[k+1],b=pts[k];
+          let alphaHex,widthFrac;
+          if(k===0){alphaHex=tr[1];widthFrac=0.75;}        // n-1 → n
+          else if(k===1){alphaHex=tr[2];widthFrac=0.50;}   // n-2 → n-1
+          else{alphaHex=tr[3];widthFrac=0.50;}             // n-3 → n-2 + extensions
+          drawSeg(a,b,clr,alphaHex,widthFrac);
         }
-        // Then 3 base segments
-        if(idx>=3)drawSeg(pos[3],pos[2],clr,tr[3],0.50);  // n-3 → n-2
-        if(idx>=2)drawSeg(pos[2],pos[1],clr,tr[2],0.50);  // n-2 → n-1
-        drawSeg(pos[1],pos[0],clr,tr[1],0.75);            // n-1 → n
       }
       ctx.lineWidth=1;
     }
