@@ -15,6 +15,7 @@ GMAIL_SENDER = "payotorn@gmail.com"
 GMAIL_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 ALERT_TO = "payotorn@gmail.com"
 MAX_ROWS = 200
+STATE_MAP_FRAMES = 300
 LOOKBACK_DAYS = 30
 MIN_EMAIL_GAP = 60
 # ASSETS: all assets with data pipeline
@@ -701,9 +702,8 @@ function drawStateMap(data,idx){
         QQQ:     ['#1a6fc9','80','40','26'],
         DXY:     ['#15803d','80','40','26'],
       };
-      // How many extra extension segments per TF (beyond the 3 base)
-      // 1h adds 1, 4h adds 50, 1d adds 200 (full timeline worth of trail)
-      const TF_EXT={'15m':0,'30m':0,'1h':1,'4h':50,'1d':200};
+      // How many extra extension segments per TF (beyond the 3 base) — uniform 20 = total 23 segs per TF
+      const TF_EXT={'15m':20,'30m':20,'1h':20,'4h':20,'1d':20};
       function drawSeg(a,b,clr,alphaHex,widthFrac){
         if(!a||!b)return;
         ctx.strokeStyle=clr+alphaHex;
@@ -1201,8 +1201,8 @@ if __name__ == "__main__":
             st = analyze_market_state(all_events, rsi_data)
             print(f"  {asset_name} (state map only): {st}")
 
-    # Build state map with animation timeline aligned to indicator (same N as MAX_ROWS)
-    frames = build_state_timeline_frames(asset_data, N=MAX_ROWS)
+    # Build state map with animation timeline aligned to 300 frames
+    frames = build_state_timeline_frames(asset_data, N=STATE_MAP_FRAMES)
     smh = build_state_map_html(frames)
 
     html = build_html(sections, smh)
