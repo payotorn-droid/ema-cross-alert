@@ -848,7 +848,7 @@ function drawStateMap(data,idx){
       let bx=tip.ix-W/2, by=tip.iy-H-12;
       if(by<2)by=tip.iy+14;
       if(bx<2)bx=2;
-      if(bx+W>canvas.width)bx=canvas.width-W-2;
+      if(bx+W>cv.width)bx=cv.width-W-2;
       // Box
       ctx.fillStyle='rgba(15,23,42,0.92)';
       ctx.fillRect(bx,by,W,H);
