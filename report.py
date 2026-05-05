@@ -236,10 +236,11 @@ def build_full_heatmap_html(asset_name, all_events, years=4):
     return f"""<div class="modal-overlay" id="modal-{asset_name}" onclick="if(event.target===this)closeModal('{asset_name}')"><div class="modal-content"><div class="modal-header"><div class="modal-title">{asset_name} · Full Heatmap · {rows} events · {fd} → {ld}</div><button class="modal-close" onclick="closeModal('{asset_name}')">×</button></div><div class="modal-body"><svg width="{w}" height="{h}" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">{rects}</svg></div></div></div>"""
 
 def build_state_timeline_frames(asset_data, N=50):
-    """Build N-frame timeline: state of all assets at each BTC cross timestamp.
-    BTC is the master clock (24/7 trading) — produces continuous timeline with no gaps
-    even when traditional markets (Gold, SPY) are closed.
-    Other assets carry forward their last known state at each BTC pivot.
+    """Build N-frame timeline: state of all assets at each cross event from ANY asset.
+    Master clock = union of cross events across all assets — Gold/BTC/XAUBTC/SPY/QQQ/DXY.
+    Whenever any asset has a cross, a frame is emitted; assets without a cross at that
+    timestamp carry forward their last known state. This produces a timeline that
+    advances every time any tracked market moves, regardless of which one.
     """
     # Precompute running cross-state snapshots per asset (tuples sorted by time)
     running = {}
@@ -255,11 +256,13 @@ def build_state_timeline_frames(asset_data, N=50):
             snapshots.append((pd.Timestamp(f"{key[0]} {key[1]}"), dict(cs)))
         running[asset] = snapshots
 
-    # Master timeline = last N BTC cross timestamps (24/7 → no market-closed gaps)
-    btc_events = asset_data.get("Bitcoin", {}).get("events", {})
-    sorted_btc = sorted(btc_events.keys())
-    if not sorted_btc: return []
-    pivots = sorted_btc[-N:]
+    # Master timeline = union of cross events from ALL assets, deduplicated and sorted.
+    # This way, whenever Gold/BTC/SPY/etc has a cross, a new frame is emitted.
+    all_keys = set()
+    for asset in ASSETS:
+        all_keys.update(asset_data.get(asset, {}).get("events", {}).keys())
+    if not all_keys: return []
+    pivots = sorted(all_keys)[-N:]
 
     frames = []
     for (d, t) in pivots:
