@@ -360,10 +360,11 @@ def build_state_map_html(frames):
     <span class="sm-legend-swatch sm-sw-dxy">$</span>DXY
   </button>
 </div>'''
+    spread_banner = '<div class="state-map-spread" id="stateMapSpread"><span class="sms-hint">Tap an icon to see EMA spread</span></div>'
     if not frames:
-        return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
+        return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">—</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{spread_banner}{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames=[];</script>'
     latest_ts = frames[-1]["ts"]
-    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
+    return f'<div class="state-map-box"><div class="state-map-header"><div class="state-map-label">STATE MAP</div><div class="state-map-ts" id="stateMapTs">{latest_ts}</div></div><canvas id="stateMap" width="540" height="320" style="max-width:100%;"></canvas>{spread_banner}{legend}<div class="state-map-progress"><div class="state-map-progress-fill" id="stateMapProg"></div></div>{controls}</div><script>window._stateMapFrames={_j.dumps(frames)};</script>'
 
 def build_table_html(asset_name, all_events, rsi_data=None):
     ne = len(EMA_PAIRS)
@@ -831,42 +832,32 @@ function drawStateMap(data,idx){
     }
   }
 
-  // Draw tooltip on top of everything if an icon is selected.
-  // Shows EMA spread % (S/M/L) for the tapped asset+TF at current frame.
-  const tip=window._smTooltip;
-  if(tip){
-    const f=window._stateMapFrames[idx];
-    const sp=f&&f[tip.asset]&&f[tip.asset][tip.tf]?f[tip.asset][tip.tf].sp:null;
-    if(sp){
-      const lines=[
-        `${tip.asset} · ${tip.tf}`,
-        `S(12/26): ${fmtSpread(sp[0])}`,
-        `M(20/50): ${fmtSpread(sp[1])}`,
-        `L(50/200): ${fmtSpread(sp[2])}`,
-      ];
-      const W=104,H=58,PAD=5;
-      let bx=tip.ix-W/2, by=tip.iy-H-12;
-      if(by<2)by=tip.iy+14;
-      if(bx<2)bx=2;
-      if(bx+W>cv.width)bx=cv.width-W-2;
-      // Box
-      ctx.fillStyle='rgba(15,23,42,0.92)';
-      ctx.fillRect(bx,by,W,H);
-      ctx.strokeStyle='#cbd5e1';
-      ctx.lineWidth=0.8;
-      ctx.strokeRect(bx,by,W,H);
-      // Lines
-      ctx.textAlign='left';
-      ctx.textBaseline='top';
-      ctx.font='700 10px sans-serif';
-      ctx.fillStyle='#fff';
-      ctx.fillText(lines[0],bx+PAD,by+PAD);
-      ctx.font='400 10px monospace';
-      for(let i=1;i<4;i++){
-        const v=sp[i-1];
-        ctx.fillStyle=v==null?'#94a3b8':v>0?'#10b981':v<0?'#ef4444':'#94a3b8';
-        ctx.fillText(lines[i],bx+PAD,by+PAD+i*12);
+  // Update spread banner above canvas (separate HTML element, not canvas).
+  // Shows: "BTC · 1d  |  S +2.20%  M +2.59%  L -10.62%" with green/red coloring.
+  // Falls back to a hint when nothing is selected.
+  const banner=document.getElementById('stateMapSpread');
+  if(banner){
+    const tip=window._smTooltip;
+    if(tip){
+      const f=window._stateMapFrames[idx];
+      const sp=f&&f[tip.asset]&&f[tip.asset][tip.tf]?f[tip.asset][tip.tf].sp:null;
+      if(sp){
+        const shortName=tip.asset==='Bitcoin'?'BTC':tip.asset;
+        const seg=(label,v)=>{
+          if(v==null)return `<span class="sms-mut">${label} —</span>`;
+          const cls=v>0?'sms-pos':v<0?'sms-neg':'sms-mut';
+          const sign=v>=0?'+':'';
+          return `<span class="${cls}">${label} ${sign}${v.toFixed(2)}%</span>`;
+        };
+        banner.innerHTML=`<span class="sms-head">${shortName} · ${tip.tf}</span><span class="sms-sep">|</span>${seg('S',sp[0])}${seg('M',sp[1])}${seg('L',sp[2])}`;
+        banner.classList.add('active');
+      }else{
+        banner.innerHTML='<span class="sms-hint">No data</span>';
+        banner.classList.remove('active');
       }
+    }else{
+      banner.innerHTML='<span class="sms-hint">Tap an icon to see EMA spread</span>';
+      banner.classList.remove('active');
     }
   }
 
@@ -1103,6 +1094,14 @@ body{{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--t
 .sm-speed-btn:hover{{border-color:var(--gold);color:var(--gold);}}
 .sm-speed-btn.active{{background:var(--gold);color:var(--bg);border-color:var(--gold);}}
 .state-map-legend{{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;}}
+.state-map-spread{{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:6px;padding:6px 10px;border-radius:6px;background:var(--bg3);border:1px solid var(--border);font-size:13px;font-weight:700;font-family:'Segoe UI',Arial,sans-serif;line-height:1.5;min-height:30px;transition:all .15s;}}
+.state-map-spread.active{{border-color:var(--gold);}}
+.state-map-spread .sms-head{{color:var(--gold);font-weight:800;}}
+.state-map-spread .sms-sep{{color:var(--text4);font-weight:400;}}
+.state-map-spread .sms-pos{{color:var(--g-fg);font-family:'Consolas',monospace;}}
+.state-map-spread .sms-neg{{color:var(--d-fg);font-family:'Consolas',monospace;}}
+.state-map-spread .sms-mut{{color:var(--text3);font-family:'Consolas',monospace;}}
+.state-map-spread .sms-hint{{color:var(--text3);font-weight:400;font-style:italic;}}
 .sm-legend-pill{{display:inline-flex;align-items:center;gap:5px;background:var(--tog-bg);border:1px solid var(--border2);border-radius:14px;padding:3px 10px 3px 4px;font-size:10px;font-weight:700;color:var(--text3);cursor:pointer;transition:all .15s;opacity:.45;}}
 .sm-legend-pill:hover{{border-color:var(--gold);color:var(--gold);}}
 .sm-legend-pill.active{{opacity:1;color:var(--text2);border-color:var(--border2);}}
