@@ -93,6 +93,20 @@ def collect_events(asset_name):
                     all_events[key]["crosses"].setdefault(interval, {})[label] = cross
     return all_events
 
+def collect_ema_series(asset_name):
+    """Return {interval: {label: (ema_fast_series, ema_slow_series)}} for state map spread calc."""
+    res = {}
+    for interval in INTERVALS:
+        close = load_csv(asset_name, interval)
+        if close is None: continue
+        pair_emas = {}
+        for fast, slow, label in EMA_PAIRS:
+            if len(close) < slow + 10: continue
+            pair_emas[label] = (calc_ema(close, fast), calc_ema(close, slow))
+        if pair_emas:
+            res[interval] = pair_emas
+    return res
+
 def cell_html(cross, iv_sep=False, last_signal=None, last_price=None, cur_price=None, iv="", lbl=""):
     classes = []
     if iv_sep: classes.append("iv-sep")
@@ -281,14 +295,29 @@ def build_state_timeline_frames(asset_data, N=50):
             for iv, rsi in rsi_data.items():
                 v = rsi.asof(ts)
                 if pd.notna(v): rr[iv] = round(float(v), 0)
+            # EMA spread lookup at ts: spread% = (ema_fast - ema_slow) / ema_slow * 100
+            emas = asset_data.get(asset, {}).get("emas", {})
             # Build state dict for this asset at this frame
             td = {}
             for iv in INTERVALS:
+                sp = []
+                pair_emas = emas.get(iv, {})
+                for _, _, lb in EMA_PAIRS:
+                    if lb in pair_emas:
+                        ema_f, ema_s = pair_emas[lb]
+                        f_val, s_val = ema_f.asof(ts), ema_s.asof(ts)
+                        if pd.notna(f_val) and pd.notna(s_val) and s_val != 0:
+                            sp.append(round((f_val - s_val) / s_val * 100, 2))
+                        else:
+                            sp.append(None)
+                    else:
+                        sp.append(None)
                 td[iv] = {
                     "S": cs.get((iv, "S"), "G"),
                     "M": cs.get((iv, "M"), "G"),
                     "L": cs.get((iv, "L"), "G"),
                     "rsi": rr.get(iv, 50),
+                    "sp": sp,
                 }
             frame[asset] = td
         frames.append(frame)
@@ -521,6 +550,11 @@ const STATE_TOTAL=8;
 // Re-enabling shows trail continuously (no reset) since we always look up
 // past frames from the global frame array.
 window._smAssetOn=window._smAssetOn||{Gold:true,Bitcoin:true,XAUBTC:false,SPY:false,QQQ:false,DXY:false};
+// Tap-to-show EMA spread tooltip. Set by tap handler (canvas click).
+// {tf, asset, ix, iy} or null. Refreshed each frame from current frame data.
+window._smTooltip=window._smTooltip||null;
+// Icon positions cache — populated each draw, used by tap handler for hit-testing.
+window._smIconPositions=[];
 
 function drawStateMap(data,idx){
   if(!data)return;
@@ -528,6 +562,8 @@ function drawStateMap(data,idx){
   if(!cv)return;
   const ctx=cv.getContext('2d');
   ctx.clearRect(0,0,cv.width,cv.height);
+  // Reset icon position cache for hit-testing on tap
+  window._smIconPositions=[];
   const tfs=['15m','30m','1h','4h','1d'],emas=['S','M','L'];
   const cW=28,gap=16,tW=3*cW,tH=240,tP=55,sX=14,GL='#dcfce7',RL='#fee2e2';
 
@@ -755,6 +791,8 @@ function drawStateMap(data,idx){
       const d=data[aN];
       if(!d||!d[tf])continue;
       const s=d[tf],r8=s2r(s.S,s.M,s.L),iy=rowCY(r8),rsi=Math.max(30,Math.min(70,s.rsi)),ix=tx+((rsi-30)/40)*tW;
+      // Record icon position for hit-testing on tap (cleared each frame)
+      window._smIconPositions.push({tf,asset:aN,ix,iy});
       if(aT==='gold')dGB(ix,iy,14,9);
       else if(aT==='spy'){
         // SPDR-inspired concentric rings: red outer, white ring, red core dot
@@ -793,6 +831,50 @@ function drawStateMap(data,idx){
     }
   }
 
+  // Draw tooltip on top of everything if an icon is selected.
+  // Shows EMA spread % (S/M/L) for the tapped asset+TF at current frame.
+  const tip=window._smTooltip;
+  if(tip){
+    const f=window._stateMapFrames[idx];
+    const sp=f&&f[tip.asset]&&f[tip.asset][tip.tf]?f[tip.asset][tip.tf].sp:null;
+    if(sp){
+      const lines=[
+        `${tip.asset} · ${tip.tf}`,
+        `S(12/26): ${fmtSpread(sp[0])}`,
+        `M(20/50): ${fmtSpread(sp[1])}`,
+        `L(50/200): ${fmtSpread(sp[2])}`,
+      ];
+      const W=104,H=58,PAD=5;
+      let bx=tip.ix-W/2, by=tip.iy-H-12;
+      if(by<2)by=tip.iy+14;
+      if(bx<2)bx=2;
+      if(bx+W>canvas.width)bx=canvas.width-W-2;
+      // Box
+      ctx.fillStyle='rgba(15,23,42,0.92)';
+      ctx.fillRect(bx,by,W,H);
+      ctx.strokeStyle='#cbd5e1';
+      ctx.lineWidth=0.8;
+      ctx.strokeRect(bx,by,W,H);
+      // Lines
+      ctx.textAlign='left';
+      ctx.textBaseline='top';
+      ctx.font='700 10px sans-serif';
+      ctx.fillStyle='#fff';
+      ctx.fillText(lines[0],bx+PAD,by+PAD);
+      ctx.font='400 10px monospace';
+      for(let i=1;i<4;i++){
+        const v=sp[i-1];
+        ctx.fillStyle=v==null?'#94a3b8':v>0?'#10b981':v<0?'#ef4444':'#94a3b8';
+        ctx.fillText(lines[i],bx+PAD,by+PAD+i*12);
+      }
+    }
+  }
+
+}
+
+function fmtSpread(v){
+  if(v==null)return '—';
+  return (v>=0?'+':'')+v.toFixed(2)+'%';
 }
 
 // ───── State map video-player controller ─────
@@ -924,10 +1006,33 @@ function setupStateMapControls(){
       const a=btn.dataset.asset;
       window._smAssetOn[a]=!window._smAssetOn[a];
       btn.classList.toggle('active',window._smAssetOn[a]);
+      // If we hid the asset that's currently selected for tooltip, clear tooltip.
+      if(window._smTooltip&&!window._smAssetOn[window._smTooltip.asset]){
+        window._smTooltip=null;
+      }
       // Redraw current frame immediately so change is visible even when paused
       renderStateMapFrame(window._smIdx);
     });
   });
+  // Tap/click on canvas: find nearest icon within hit radius → show tooltip.
+  // Tap outside any icon → clear tooltip.
+  const cv=b('stateMap');
+  if(cv){
+    cv.addEventListener('click',e=>{
+      const rect=cv.getBoundingClientRect();
+      // Convert CSS pixels → canvas internal coords
+      const cx=(e.clientX-rect.left)*(cv.width/rect.width);
+      const cy=(e.clientY-rect.top)*(cv.height/rect.height);
+      const HIT=20;  // touch-friendly hit radius (icon visual radius is ~7)
+      let best=null,bestDist=HIT;
+      for(const p of window._smIconPositions){
+        const d=Math.hypot(p.ix-cx,p.iy-cy);
+        if(d<bestDist){best=p;bestDist=d;}
+      }
+      window._smTooltip=best;  // Either {tf,asset,ix,iy} or null
+      renderStateMapFrame(window._smIdx);
+    });
+  }
   // Keyboard shortcuts — only when state map is in viewport
   document.addEventListener('keydown',e=>{
     // Ignore when typing in inputs/textareas
@@ -1197,7 +1302,8 @@ if __name__ == "__main__":
     for asset_name in ASSETS:
         all_events = collect_events(asset_name)
         rsi_data = collect_rsi(asset_name)
-        asset_data[asset_name] = {"events": all_events, "rsi": rsi_data}
+        ema_series = collect_ema_series(asset_name)
+        asset_data[asset_name] = {"events": all_events, "rsi": rsi_data, "emas": ema_series}
         if asset_name in MAIN_ASSETS:
             # Indicator panel, table, state badge, email alerts only for main assets
             sections.append(build_table_html(asset_name, all_events, rsi_data))
