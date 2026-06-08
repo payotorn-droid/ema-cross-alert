@@ -1857,7 +1857,9 @@
     "Bitcoin|2026-06-08|07:00|15m|M|GOLDEN",
     "Bitcoin|2026-06-08|07:00|30m|S|GOLDEN",
     "XAUBTC|2026-06-08|07:00|15m|M|DEATH",
-    "XAUBTC|2026-06-08|07:00|30m|S|DEATH"
+    "XAUBTC|2026-06-08|07:00|30m|S|DEATH",
+    "Bitcoin|2026-06-08|12:15|15m|S|DEATH",
+    "Bitcoin|2026-06-08|13:30|15m|S|GOLDEN"
   ],
-  "last_email": "2026-06-08T07:12:23.702725"
+  "last_email": "2026-06-08T16:56:29.881117"
 }
