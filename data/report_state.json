@@ -1878,7 +1878,15 @@
     "Gold|2026-06-09|08:30|30m|S|GOLDEN",
     "Bitcoin|2026-06-09|06:45|15m|M|DEATH",
     "Bitcoin|2026-06-09|06:30|30m|S|DEATH",
-    "Bitcoin|2026-06-09|10:00|30m|M|DEATH"
+    "Bitcoin|2026-06-09|10:00|30m|M|DEATH",
+    "Gold|2026-06-09|14:45|15m|S|DEATH",
+    "Bitcoin|2026-06-09|12:15|15m|S|GOLDEN",
+    "Bitcoin|2026-06-09|15:15|15m|S|DEATH",
+    "Bitcoin|2026-06-09|14:00|15m|M|GOLDEN",
+    "Bitcoin|2026-06-09|14:15|15m|M|DEATH",
+    "Bitcoin|2026-06-09|12:30|30m|M|GOLDEN",
+    "Bitcoin|2026-06-09|15:30|30m|M|DEATH",
+    "XAUBTC|2026-06-09|12:30|15m|S|DEATH"
   ],
-  "last_email": "2026-06-09T11:46:27.420951"
+  "last_email": "2026-06-09T15:32:04.439556"
 }
