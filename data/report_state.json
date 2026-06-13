@@ -1973,7 +1973,13 @@
     "XAUBTC|2026-06-13|01:30|15m|M|GOLDEN",
     "XAUBTC|2026-06-13|01:00|30m|S|GOLDEN",
     "Bitcoin|2026-06-13|05:00|15m|M|DEATH",
-    "Bitcoin|2026-06-13|05:30|30m|S|DEATH"
+    "Bitcoin|2026-06-13|05:30|30m|S|DEATH",
+    "Bitcoin|2026-06-13|08:30|15m|S|GOLDEN",
+    "Bitcoin|2026-06-13|08:30|15m|M|GOLDEN",
+    "Bitcoin|2026-06-13|08:30|30m|S|GOLDEN",
+    "Bitcoin|2026-06-13|10:30|15m|S|DEATH",
+    "Bitcoin|2026-06-13|11:00|15m|M|DEATH",
+    "Bitcoin|2026-06-13|11:00|30m|S|DEATH"
   ],
-  "last_email": "2026-06-13T06:52:40.363443"
+  "last_email": "2026-06-13T11:07:15.788470"
 }
