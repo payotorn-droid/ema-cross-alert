@@ -1,8 +1,5 @@
 {
   "sent_events": [
-    "XAUBTC|2026-06-08|19:45|15m|S|DEATH",
-    "Gold|2026-06-08|21:30|30m|S|GOLDEN",
-    "Bitcoin|2026-06-09|00:00|30m|L|GOLDEN",
     "XAUBTC|2026-06-09|00:00|15m|S|GOLDEN",
     "Bitcoin|2026-06-09|01:45|15m|S|DEATH",
     "Gold|2026-06-09|03:30|15m|S|DEATH",
@@ -1999,7 +1996,10 @@
     "Bitcoin|2026-08-24|10:45|15m|M|DEATH",
     "Bitcoin|2026-08-24|10:30|30m|S|DEATH",
     "XAUBTC|2026-08-24|11:00|4h|L|DEATH",
-    "Gold|2026-08-24|07:00|1d|L|GOLDEN"
+    "Gold|2026-08-24|07:00|1d|L|GOLDEN",
+    "Bitcoin|2026-08-24|14:00|15m|S|GOLDEN",
+    "Bitcoin|2026-08-24|14:00|15m|M|GOLDEN",
+    "Bitcoin|2026-08-24|14:00|30m|S|GOLDEN"
   ],
-  "last_email": "2026-08-24T13:24:31.237266"
+  "last_email": "2026-08-24T14:37:49.825062"
 }
